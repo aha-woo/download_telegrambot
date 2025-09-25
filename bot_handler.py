@@ -293,8 +293,34 @@ class TelegramBotHandler:
             text_parts.append(message.caption)
         
         # 不再添加转发信息，让消息看起来像原创内容
+        result_text = '\n'.join(text_parts) if text_parts else ""
         
-        return '\n'.join(text_parts) if text_parts else ""
+        # 限制caption长度（Telegram限制为1024字符）
+        return self._truncate_caption(result_text)
+    
+    def _truncate_caption(self, text: str, max_length: int = 1024) -> str:
+        """截断caption文本以符合Telegram长度限制"""
+        if not text:
+            return ""
+        
+        if len(text) <= max_length:
+            return text
+        
+        # 如果超长，尝试在句子边界截断
+        truncated_length = max_length - 4  # 为 "..." 预留空间
+        
+        # 尝试在最近的句号、换行符或空格处截断
+        for delimiter in ['\n', '. ', '。', ' ']:
+            last_pos = text.rfind(delimiter, 0, truncated_length)
+            if last_pos > truncated_length * 0.8:  # 如果找到的位置不会丢失太多内容
+                truncated = text[:last_pos + (1 if delimiter in ['. ', '。'] else 0)] + "..."
+                logger.warning(f"Caption过长({len(text)}字符)，已在'{delimiter}'处截断至{len(truncated)}字符")
+                return truncated
+        
+        # 如果找不到合适的截断点，直接截断
+        truncated = text[:truncated_length] + "..."
+        logger.warning(f"Caption过长({len(text)}字符)，已强制截断至{len(truncated)}字符")
+        return truncated
     
     def _escape_html(self, text: str) -> str:
         """转义HTML特殊字符"""
