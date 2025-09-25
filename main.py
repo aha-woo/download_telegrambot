@@ -913,10 +913,6 @@ async def main():
 if __name__ == "__main__":
     try:
         # 确保在 PM2 环境中正确运行
-        if hasattr(asyncio, 'WindowsSelectorEventLoopPolicy'):
-            asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-        
-        # 直接运行，让 PM2 管理进程
         asyncio.run(main())
         
     except Exception as e:
