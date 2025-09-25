@@ -372,13 +372,15 @@ class CompleteTelegramMediaBot:
         # 实现最近消息转发逻辑
 
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """处理消息（只有在轮询激活时才处理）"""
-        if not self.polling_active:
-            return
-        
+        """处理消息"""
         try:
             # 检查消息是否来自源频道
             if update.effective_chat.id != int(self.config.source_channel_id.replace('@', '').replace('-100', '')):
+                return
+            
+            # 如果自定义轮询未激活，不处理源频道消息
+            if not self.polling_active:
+                logger.info("⏸️ 自定义轮询未启动，跳过源频道消息处理")
                 return
             
             # 检查时间控制
@@ -736,46 +738,17 @@ class CompleteTelegramMediaBot:
         logger.info("🛑 自定义轮询已停止")
 
     async def _polling_loop(self):
-        """轮询循环"""
+        """自定义轮询状态监控循环（用于统计和状态）"""
         try:
             while self.polling_active and not self.shutdown_flag:
-                # 检查时间控制
-                if not self.config.is_in_time_range():
-                    logger.info(f"⏰ 当前时间不在允许范围内，跳过本次轮询")
-                    await asyncio.sleep(self.config.polling_interval)
-                    continue
+                # 更新统计信息
+                self.polling_stats['requests_count'] += 1
                 
-                try:
-                    # 获取更新
-                    offset = self.last_update_id + 1 if self.last_update_id else None
-                    updates = await self.application.bot.get_updates(
-                        offset=offset,
-                        limit=100,
-                        timeout=int(self.config.polling_interval / 2)
-                    )
-                    
-                    self.polling_stats['requests_count'] += 1
-                    
-                    if updates:
-                        logger.info(f"📥 收到 {len(updates)} 个更新")
-                        
-                        for update in updates:
-                            self.last_update_id = update.update_id
-                            
-                            # 处理更新
-                            await self.application.process_update(update)
-                    
-                    # 等待下次轮询
-                    await asyncio.sleep(self.config.polling_interval)
-                    
-                except asyncio.CancelledError:
-                    break
-                except Exception as e:
-                    logger.error(f"轮询过程中出错: {e}")
-                    await asyncio.sleep(self.config.polling_interval)
+                # 等待下次检查
+                await asyncio.sleep(self.config.polling_interval)
                     
         except asyncio.CancelledError:
-            logger.info("轮询循环被取消")
+            logger.info("自定义轮询监控被取消")
 
     def _get_running_duration(self):
         """获取运行时长"""
@@ -878,16 +851,25 @@ class CompleteTelegramMediaBot:
             async with self.application:
                 await self.application.start()
                 
-                # 根据配置决定是否自动开始轮询
+                # 始终启动标准轮询以处理命令
+                await self.application.updater.start_polling(
+                    allowed_updates=Update.ALL_TYPES,
+                    drop_pending_updates=True
+                )
+                
+                # 根据配置决定是否自动开始自定义轮询
                 if self.config.auto_polling and self.config.polling_enabled:
                     await self.start_custom_polling()
-                    logger.info("🔄 自动轮询已启动")
+                    logger.info("🔄 自动自定义轮询已启动")
                 else:
-                    logger.info("⏸️ 轮询未自动启动，使用 /start_polling 命令手动启动")
+                    logger.info("⏸️ 自定义轮询未自动启动，使用 /start_polling 命令手动启动")
                 
                 # 等待关闭信号
                 while not self.shutdown_flag:
                     await asyncio.sleep(1)
+                
+                # 停止轮询
+                await self.application.updater.stop()
                 
                 # 停止轮询和应用
                 await self.stop_custom_polling()
