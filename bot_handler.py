@@ -2,7 +2,9 @@
 Telegram Bot 消息处理模块
 """
 
+import asyncio
 import logging
+import random
 from typing import List, Optional
 from pathlib import Path
 
@@ -52,6 +54,87 @@ class TelegramBotHandler:
         elif message.sticker:
             return 'sticker'
         return None
+    
+    async def handle_channel_message(self, update, context):
+        """处理来自源频道的消息"""
+        message = update.effective_message
+        if not message:
+            return
+        
+        logger.info(f"📥 收到来自源频道的消息 {message.message_id}")
+        
+        try:
+            # 检查消息是否包含媒体
+            if self.has_media(message):
+                logger.info(f"📥 消息 {message.message_id} 包含媒体，开始下载...")
+                
+                # 添加下载前的随机延迟
+                if self.config.delay_enabled:
+                    delay = random.uniform(self.config.download_delay_min, self.config.download_delay_max)
+                    logger.info(f"⏱️ 下载前等待 {delay:.1f}s（模拟人工操作）")
+                    await asyncio.sleep(delay)
+                
+                # 下载媒体文件
+                from media_downloader import MediaDownloader
+                downloader = MediaDownloader(self.config)
+                downloaded_files = await downloader.download_media(message, context.bot)
+                
+                if downloaded_files:
+                    logger.info(f"📥 消息 {message.message_id} 下载完成，共 {len(downloaded_files)} 个文件")
+                    
+                    # 添加转发前的随机延迟
+                    if self.config.delay_enabled:
+                        delay = random.uniform(self.config.forward_delay_min, self.config.forward_delay_max)
+                        logger.info(f"⏱️ 转发前等待 {delay:.1f}s（模拟人工操作）")
+                        await asyncio.sleep(delay)
+                    
+                    logger.info(f"📤 开始转发消息 {message.message_id} 到目标频道...")
+                    
+                    # 转发消息到目标频道
+                    await self.forward_message(message, downloaded_files, context.bot)
+                    logger.info(f"🎉 成功转发消息 {message.message_id} 到目标频道")
+                    
+                    # 自动清理已成功发布的文件
+                    logger.info(f"🧹 开始清理消息 {message.message_id} 的本地文件...")
+                    await self._cleanup_files(downloaded_files)
+                    logger.info(f"🧹 消息 {message.message_id} 文件清理完成")
+                else:
+                    logger.warning(f"⚠️ 消息 {message.message_id} 没有可下载的媒体文件")
+                    
+            else:
+                logger.info(f"📝 消息 {message.message_id} 是纯文本消息")
+                
+                # 添加转发前的随机延迟
+                if self.config.delay_enabled:
+                    delay = random.uniform(self.config.forward_delay_min, self.config.forward_delay_max)
+                    logger.info(f"⏱️ 转发前等待 {delay:.1f}s（模拟人工操作）")
+                    await asyncio.sleep(delay)
+                
+                # 转发纯文本消息
+                await self.forward_text_message(message, context.bot)
+                logger.info(f"🎉 成功转发文本消息 {message.message_id} 到目标频道")
+                
+        except Exception as e:
+            logger.error(f"❌ 处理消息 {message.message_id} 失败: {e}")
+            raise
+    
+    async def _cleanup_files(self, file_infos: list):
+        """清理已成功发布的文件"""
+        import os
+        for file_info in file_infos:
+            try:
+                # 处理文件格式 {'path': Path, 'type': str}
+                if isinstance(file_info, dict):
+                    file_path = file_info['path']
+                else:
+                    # 向后兼容旧格式
+                    file_path = file_info
+                    
+                if os.path.exists(file_path):
+                    os.remove(file_path)
+                    logger.info(f"已清理文件: {file_path}")
+            except Exception as e:
+                logger.error(f"清理文件 {file_info} 失败: {e}")
     
     async def forward_text_message(self, message: Message, bot=None):
         """发送纯文本消息（作为原创内容）"""

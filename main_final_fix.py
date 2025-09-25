@@ -9,6 +9,7 @@ import logging
 import os
 import signal
 import sys
+import random
 from pathlib import Path
 from typing import Optional
 
@@ -148,6 +149,12 @@ class TelegramMediaBot:
             if update.effective_chat.id != int(self.config.source_channel_id.replace('@', '').replace('-100', '')):
                 return
             
+            # 添加随机延迟模拟人工操作
+            if self.config.delay_enabled:
+                delay = random.uniform(self.config.min_delay, self.config.max_delay)
+                logger.info(f"⏱️ 等待 {delay:.1f}s 后处理消息（模拟人工操作）")
+                await asyncio.sleep(delay)
+            
             if not self.bot_handler:
                 self.bot_handler = TelegramBotHandler(self.config)
             
@@ -210,8 +217,36 @@ class TelegramMediaBot:
         signal.signal(signal.SIGINT, self.signal_handler)
         
         try:
+            # 创建应用构建器
+            app_builder = Application.builder().token(self.config.bot_token)
+            
+            # 配置代理
+            proxy_config = self.config.get_proxy_config()
+            if proxy_config:
+                logger.info(f"🌐 配置代理: {proxy_config['proxy_type']}://{proxy_config['host']}:{proxy_config['port']}")
+                try:
+                    # 为 httpx 配置代理
+                    if proxy_config['proxy_type'] == 'socks5':
+                        proxy_url = f"socks5://{proxy_config.get('username', '')}:{proxy_config.get('password', '')}@{proxy_config['host']}:{proxy_config['port']}"
+                        if not proxy_config.get('username'):
+                            proxy_url = f"socks5://{proxy_config['host']}:{proxy_config['port']}"
+                    elif proxy_config['proxy_type'] == 'http':
+                        proxy_url = f"http://{proxy_config.get('username', '')}:{proxy_config.get('password', '')}@{proxy_config['host']}:{proxy_config['port']}"
+                        if not proxy_config.get('username'):
+                            proxy_url = f"http://{proxy_config['host']}:{proxy_config['port']}"
+                    
+                    # 设置代理
+                    app_builder = app_builder.proxy(proxy_url)
+                    logger.info(f"✅ 代理配置成功: {proxy_url.split('@')[-1] if '@' in proxy_url else proxy_url}")
+                    
+                except Exception as e:
+                    logger.error(f"❌ 代理配置失败: {e}")
+                    logger.warning("⚠️ 将使用直连模式")
+            else:
+                logger.info("🔗 使用直连模式（未配置代理）")
+            
             # 创建应用
-            self.application = Application.builder().token(self.config.bot_token).build()
+            self.application = app_builder.build()
             
             # 设置处理器
             self.setup_handlers()

@@ -23,6 +23,34 @@ class Config:
         self.download_path = os.getenv('DOWNLOAD_PATH', './downloads')
         self.max_file_size = self._parse_file_size(os.getenv('MAX_FILE_SIZE', '50MB'))
         
+        # 代理设置
+        self.proxy_enabled = os.getenv('PROXY_ENABLED', 'false').lower() == 'true'
+        self.proxy_host = self._get_optional_env('PROXY_HOST')
+        self.proxy_port = self._get_optional_env('PROXY_PORT')
+        self.proxy_username = self._get_optional_env('PROXY_USERNAME')
+        self.proxy_password = self._get_optional_env('PROXY_PASSWORD')
+        self.proxy_type = os.getenv('PROXY_TYPE', 'socks5').lower()
+        
+        # 随机延迟设置
+        self.delay_enabled = os.getenv('DELAY_ENABLED', 'true').lower() == 'true'
+        self.min_delay = float(os.getenv('MIN_DELAY', '1.0'))
+        self.max_delay = float(os.getenv('MAX_DELAY', '5.0'))
+        self.download_delay_min = float(os.getenv('DOWNLOAD_DELAY_MIN', '2.0'))
+        self.download_delay_max = float(os.getenv('DOWNLOAD_DELAY_MAX', '8.0'))
+        self.forward_delay_min = float(os.getenv('FORWARD_DELAY_MIN', '1.0'))
+        self.forward_delay_max = float(os.getenv('FORWARD_DELAY_MAX', '4.0'))
+        
+        # 轮询控制设置
+        self.polling_enabled = os.getenv('POLLING_ENABLED', 'true').lower() == 'true'
+        self.polling_interval = float(os.getenv('POLLING_INTERVAL', '10.0'))  # 轮询间隔（秒）
+        self.auto_polling = os.getenv('AUTO_POLLING', 'true').lower() == 'true'  # 启动时自动开始轮询
+        
+        # 时间段控制
+        self.time_control_enabled = os.getenv('TIME_CONTROL_ENABLED', 'false').lower() == 'true'
+        self.start_time = os.getenv('START_TIME', '10:00')  # 开始时间 HH:MM
+        self.end_time = os.getenv('END_TIME', '12:00')    # 结束时间 HH:MM
+        self.timezone = os.getenv('TIMEZONE', 'Asia/Shanghai')  # 时区
+        
         # 验证配置
         self._validate_config()
     
@@ -68,9 +96,103 @@ class Config:
         # 验证文件大小限制
         if self.max_file_size <= 0:
             raise ValueError("最大文件大小必须大于0")
+        
+        # 验证代理配置
+        if self.proxy_enabled:
+            if not self.proxy_host:
+                raise ValueError("启用代理时必须设置 PROXY_HOST")
+            if not self.proxy_port:
+                raise ValueError("启用代理时必须设置 PROXY_PORT")
+            try:
+                self.proxy_port = int(self.proxy_port)
+            except ValueError:
+                raise ValueError("PROXY_PORT 必须是有效的数字")
+            
+            if self.proxy_type not in ['socks5', 'socks4', 'http']:
+                raise ValueError("PROXY_TYPE 必须是 socks5, socks4 或 http")
+        
+        # 验证延迟配置
+        if self.delay_enabled:
+            if self.min_delay < 0 or self.max_delay < 0:
+                raise ValueError("延迟时间不能为负数")
+            if self.min_delay > self.max_delay:
+                raise ValueError("最小延迟不能大于最大延迟")
+            if self.download_delay_min > self.download_delay_max:
+                raise ValueError("最小下载延迟不能大于最大下载延迟")
+            if self.forward_delay_min > self.forward_delay_max:
+                raise ValueError("最小转发延迟不能大于最大转发延迟")
+        
+        # 验证轮询配置
+        if self.polling_interval < 1.0:
+            raise ValueError("轮询间隔不能小于1秒")
+        
+        # 验证时间格式
+        if self.time_control_enabled:
+            try:
+                import datetime
+                datetime.datetime.strptime(self.start_time, '%H:%M')
+                datetime.datetime.strptime(self.end_time, '%H:%M')
+            except ValueError:
+                raise ValueError("时间格式必须为 HH:MM")
+            
+            # 验证时区
+            try:
+                import pytz
+                pytz.timezone(self.timezone)
+            except:
+                # 如果pytz不可用或时区无效，使用默认时区
+                self.timezone = 'Asia/Shanghai'
+    
+    def get_proxy_config(self):
+        """获取代理配置字典"""
+        if not self.proxy_enabled:
+            return None
+        
+        proxy_config = {
+            'proxy_type': self.proxy_type,
+            'host': self.proxy_host,
+            'port': self.proxy_port,
+        }
+        
+        if self.proxy_username and self.proxy_password:
+            proxy_config['username'] = self.proxy_username
+            proxy_config['password'] = self.proxy_password
+        
+        return proxy_config
+    
+    def is_in_time_range(self):
+        """检查当前时间是否在允许的时间范围内"""
+        if not self.time_control_enabled:
+            return True
+        
+        try:
+            from datetime import datetime
+            import pytz
+            
+            tz = pytz.timezone(self.timezone)
+            now = datetime.now(tz)
+            current_time = now.strftime('%H:%M')
+            
+            # 处理跨日情况
+            if self.start_time <= self.end_time:
+                # 同一天内的时间范围
+                return self.start_time <= current_time <= self.end_time
+            else:
+                # 跨日的时间范围
+                return current_time >= self.start_time or current_time <= self.end_time
+        except Exception:
+            # 如果时间检查失败，默认允许
+            return True
     
     def __str__(self):
         """返回配置信息的字符串表示"""
+        proxy_info = f"启用 ({self.proxy_type}://{self.proxy_host}:{self.proxy_port})" if self.proxy_enabled else "禁用"
+        delay_info = f"启用 (转发:{self.forward_delay_min}-{self.forward_delay_max}s, 下载:{self.download_delay_min}-{self.download_delay_max}s)" if self.delay_enabled else "禁用"
+        
+        polling_info = f"启用 (间隔:{self.polling_interval}s)" if self.polling_enabled else "禁用"
+        if self.time_control_enabled:
+            polling_info += f" (时间段:{self.start_time}-{self.end_time} {self.timezone})"
+        
         return f"""
 配置信息:
 - Bot Token: {self.bot_token[:10]}...
@@ -78,4 +200,7 @@ class Config:
 - 目标频道: {self.target_channel_id}
 - 下载路径: {self.download_path}
 - 最大文件大小: {self.max_file_size / (1024*1024):.1f}MB
+- 代理: {proxy_info}
+- 随机延迟: {delay_info}
+- 轮询控制: {polling_info}
 """

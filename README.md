@@ -11,6 +11,12 @@
 - 📝 完整的日志记录
 - 🛡️ 错误处理和重试机制
 - 🚀 支持VPS部署和系统服务
+- 🌐 **SOCKS5/HTTP代理支持**
+- ⏱️ **随机延迟模拟人工操作**
+- 🎭 **反检测机制，减少被识别为机器人的风险**
+- 🕐 **可控轮询功能，支持手动启停**
+- ⏰ **时间段控制，指定运行时间**
+- ⚡ **可配置轮询间隔，灵活调整频率**
 
 ## 支持的媒体类型
 
@@ -53,7 +59,15 @@
 git clone <your-repo-url> download_bot
 cd download_bot
 
-# 运行部署脚本
+# 运行带轮询控制的部署脚本（推荐）
+chmod +x deploy_polling_control.sh
+./deploy_polling_control.sh
+
+# 或运行带代理支持的部署脚本
+chmod +x deploy_with_proxy.sh
+./deploy_with_proxy.sh
+
+# 或使用基础部署脚本
 chmod +x deploy.sh
 ./deploy.sh
 ```
@@ -100,6 +114,23 @@ TARGET_CHANNEL_ID=@target_channel_username
 # 下载设置
 DOWNLOAD_PATH=./downloads
 MAX_FILE_SIZE=50MB
+
+# 代理设置 (SOCKS5代理)
+PROXY_ENABLED=true
+PROXY_TYPE=socks5
+PROXY_HOST=your_proxy_host
+PROXY_PORT=your_proxy_port
+PROXY_USERNAME=your_proxy_username
+PROXY_PASSWORD=your_proxy_password
+
+# 随机延迟设置 (模拟人工操作)
+DELAY_ENABLED=true
+MIN_DELAY=1.0
+MAX_DELAY=5.0
+DOWNLOAD_DELAY_MIN=2.0
+DOWNLOAD_DELAY_MAX=8.0
+FORWARD_DELAY_MIN=1.0
+FORWARD_DELAY_MAX=4.0
 ```
 
 ## 使用方法
@@ -133,6 +164,24 @@ sudo journalctl -u telegram-bot -f
 | `TARGET_CHANNEL_ID` | ✅ | 目标频道ID | `@target_channel` |
 | `DOWNLOAD_PATH` | ❌ | 下载目录 | `./downloads` |
 | `MAX_FILE_SIZE` | ❌ | 最大文件大小 | `50MB` |
+| `PROXY_ENABLED` | ❌ | 启用代理 | `true/false` |
+| `PROXY_TYPE` | ❌ | 代理类型 | `socks5/http` |
+| `PROXY_HOST` | ❌ | 代理主机 | `proxy.example.com` |
+| `PROXY_PORT` | ❌ | 代理端口 | `1080` |
+| `PROXY_USERNAME` | ❌ | 代理用户名 | `username` |
+| `PROXY_PASSWORD` | ❌ | 代理密码 | `password` |
+| `DELAY_ENABLED` | ❌ | 启用随机延迟 | `true/false` |
+| `DOWNLOAD_DELAY_MIN` | ❌ | 下载最小延迟(秒) | `2.0` |
+| `DOWNLOAD_DELAY_MAX` | ❌ | 下载最大延迟(秒) | `8.0` |
+| `FORWARD_DELAY_MIN` | ❌ | 转发最小延迟(秒) | `1.0` |
+| `FORWARD_DELAY_MAX` | ❌ | 转发最大延迟(秒) | `4.0` |
+| `POLLING_ENABLED` | ❌ | 启用轮询功能 | `true/false` |
+| `POLLING_INTERVAL` | ❌ | 轮询间隔(秒) | `60.0` |
+| `AUTO_POLLING` | ❌ | 启动时自动轮询 | `true/false` |
+| `TIME_CONTROL_ENABLED` | ❌ | 启用时间段控制 | `true/false` |
+| `START_TIME` | ❌ | 开始时间 | `10:00` |
+| `END_TIME` | ❌ | 结束时间 | `12:00` |
+| `TIMEZONE` | ❌ | 时区 | `Asia/Shanghai` |
 
 ### 文件大小限制
 
@@ -142,6 +191,184 @@ sudo journalctl -u telegram-bot -f
 - `GB` - 千兆字节
 
 示例：`10MB`, `1GB`, `500KB`
+
+## 代理配置
+
+### 支持的代理类型
+
+- **SOCKS5** (推荐) - 支持TCP和UDP代理，更安全
+- **HTTP** - 仅支持HTTP流量代理
+
+### 代理配置示例
+
+```env
+# 启用SOCKS5代理
+PROXY_ENABLED=true
+PROXY_TYPE=socks5
+PROXY_HOST=185.241.228.116
+PROXY_PORT=12324
+PROXY_USERNAME=14a7615c70476
+PROXY_PASSWORD=2c83188abb
+```
+
+### 代理测试
+
+机器人提供内置的代理测试工具：
+
+```bash
+# 测试代理连接
+python test_proxy.py
+```
+
+测试内容包括：
+- 代理连接状态
+- Telegram API连接
+- 当前IP地址
+- 频道访问权限
+
+## 随机延迟配置
+
+为了模拟人工操作，减少被Telegram识别为机器人的风险，系统支持多种随机延迟：
+
+### 延迟类型
+
+1. **消息处理延迟** (`MIN_DELAY` - `MAX_DELAY`)
+   - 收到新消息后的等待时间
+   - 默认：1-5秒
+
+2. **下载延迟** (`DOWNLOAD_DELAY_MIN` - `DOWNLOAD_DELAY_MAX`)
+   - 开始下载媒体前的等待时间
+   - 默认：2-8秒
+
+3. **转发延迟** (`FORWARD_DELAY_MIN` - `FORWARD_DELAY_MAX`)
+   - 下载完成后开始转发前的等待时间
+   - 默认：1-4秒
+
+### 延迟配置建议
+
+```env
+# 保守配置（更安全，但速度较慢）
+DELAY_ENABLED=true
+MIN_DELAY=2.0
+MAX_DELAY=8.0
+DOWNLOAD_DELAY_MIN=3.0
+DOWNLOAD_DELAY_MAX=12.0
+FORWARD_DELAY_MIN=2.0
+FORWARD_DELAY_MAX=6.0
+
+# 平衡配置（推荐）
+DELAY_ENABLED=true
+MIN_DELAY=1.0
+MAX_DELAY=5.0
+DOWNLOAD_DELAY_MIN=2.0
+DOWNLOAD_DELAY_MAX=8.0
+FORWARD_DELAY_MIN=1.0
+FORWARD_DELAY_MAX=4.0
+
+# 快速配置（速度优先，风险较高）
+DELAY_ENABLED=true
+MIN_DELAY=0.5
+MAX_DELAY=2.0
+DOWNLOAD_DELAY_MIN=1.0
+DOWNLOAD_DELAY_MAX=3.0
+FORWARD_DELAY_MIN=0.5
+FORWARD_DELAY_MAX=2.0
+```
+
+### 命令行调整延迟
+
+您可以通过修改 `.env` 文件并重启机器人来调整延迟设置：
+
+```bash
+# 编辑配置
+nano .env
+
+# 重启机器人（PM2方式）
+pm2 restart mytestxiazai-bot
+
+# 或重启系统服务
+sudo systemctl restart telegram-bot
+```
+
+## 轮询控制功能
+
+### 什么是轮询控制？
+
+传统的Telegram机器人会持续不断地向Telegram服务器请求新消息（轮询）。轮询控制功能允许您：
+
+- 🕐 **手动控制轮询**：按需启动/停止轮询
+- ⏰ **时间段控制**：仅在指定时间段内运行（如工作时间）
+- ⚡ **调整轮询频率**：从默认10秒改为1分钟或更长
+- 📊 **监控轮询状态**：实时查看轮询统计信息
+
+### 轮询控制命令
+
+```bash
+# 机器人命令（在Telegram中使用）
+/start_polling          # 开始轮询
+/stop_polling           # 停止轮询
+/polling_status         # 查看轮询状态和统计
+/set_interval 60        # 设置轮询间隔为60秒
+/status                 # 查看完整机器人状态
+```
+
+### 配置示例
+
+#### 基础配置
+```env
+# 启用轮询控制但不自动开始
+POLLING_ENABLED=true
+POLLING_INTERVAL=60.0
+AUTO_POLLING=false
+```
+
+#### 时间段控制配置
+```env
+# 仅在上午10-12点自动运行
+POLLING_ENABLED=true
+POLLING_INTERVAL=60.0
+AUTO_POLLING=true
+TIME_CONTROL_ENABLED=true
+START_TIME=10:00
+END_TIME=12:00
+TIMEZONE=Asia/Shanghai
+```
+
+#### 高频轮询配置
+```env
+# 每30秒轮询一次，启动时自动开始
+POLLING_ENABLED=true
+POLLING_INTERVAL=30.0
+AUTO_POLLING=true
+TIME_CONTROL_ENABLED=false
+```
+
+### 使用场景
+
+1. **节省资源**：仅在需要时运行轮询
+2. **避开高峰期**：在网络繁忙时停止轮询
+3. **定时任务**：配合cron实现定时启停
+4. **调试模式**：手动控制轮询便于调试
+5. **合规要求**：在特定时间段内运行
+
+### 轮询状态说明
+
+```
+📊 轮询状态报告
+
+🔄 轮询状态: 🟢 运行中
+⚡ 轮询间隔: 60.0秒
+📅 ✅ 在允许时间段内
+⏰ 时间控制: 10:00-12:00 (Asia/Shanghai)
+
+📈 统计信息:
+• 请求次数: 25
+• 处理消息: 3
+• 运行时长: 25分0秒
+• 最后活动: 14:32:15
+
+🎯 下次轮询: 14:33:00
+```
 
 ## 日志和监控
 
