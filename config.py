@@ -51,6 +51,11 @@ class Config:
         self.end_time = os.getenv('END_TIME', '12:00')    # 结束时间 HH:MM
         self.timezone = os.getenv('TIMEZONE', 'Asia/Shanghai')  # 时区
         
+        # 下载配置
+        self.download_timeout = int(os.getenv('DOWNLOAD_TIMEOUT', '7200'))  # 秒 - 下载超时时间（默认2小时）
+        self.media_group_timeout = int(os.getenv('MEDIA_GROUP_TIMEOUT', '3'))  # 秒 - 等待更多消息的时间
+        self.media_group_max_wait = int(os.getenv('MEDIA_GROUP_MAX_WAIT', '60'))  # 秒 - 等待新消息的最大时间
+        
         # 验证配置
         self._validate_config()
     
@@ -126,6 +131,16 @@ class Config:
         if self.polling_interval < 1.0:
             raise ValueError("轮询间隔不能小于1秒")
         
+        # 验证下载配置
+        if self.download_timeout <= 0:
+            raise ValueError("下载超时时间必须大于0")
+        if self.media_group_timeout <= 0:
+            raise ValueError("媒体组超时时间必须大于0")
+        if self.media_group_max_wait <= 0:
+            raise ValueError("媒体组最大等待时间必须大于0")
+        if self.download_timeout < 60:
+            raise ValueError("下载超时时间至少应为60秒")
+        
         # 验证时间格式
         if self.time_control_enabled:
             try:
@@ -193,6 +208,8 @@ class Config:
         if self.time_control_enabled:
             polling_info += f" (时间段:{self.start_time}-{self.end_time} {self.timezone})"
         
+        download_info = f"超时:{self.download_timeout//60}分钟, 媒体组等待:{self.media_group_max_wait}s"
+        
         return f"""
 配置信息:
 - Bot Token: {self.bot_token[:10]}...
@@ -203,4 +220,5 @@ class Config:
 - 代理: {proxy_info}
 - 随机延迟: {delay_info}
 - 轮询控制: {polling_info}
+- 下载配置: {download_info}
 """

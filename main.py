@@ -49,10 +49,10 @@ class CompleteTelegramMediaBot:
         
         # 原始功能：媒体组缓存
         self.media_groups = {}  # {media_group_id: {'messages': [], 'timer': asyncio.Task, 'last_message_time': float, 'status': str, 'download_start_time': float}}
-        self.media_group_timeout = 3  # 秒 - 等待更多消息的时间
-        self.media_group_max_wait = 60  # 秒 - 等待新消息的最大时间
-        self.download_timeout = 3600  # 秒 - 下载超时时间（1小时）
-        self.download_progress_check_interval = 60  # 秒 - 下载进度检查间隔（1分钟）
+        self.media_group_timeout = self.config.media_group_timeout  # 等待更多消息的时间
+        self.media_group_max_wait = self.config.media_group_max_wait  # 等待新消息的最大时间
+        self.download_timeout = self.config.download_timeout  # 下载超时时间（支持大文件）
+        self.download_progress_check_interval = 30  # 秒 - 下载进度检查间隔（30秒，更频繁的进度报告）
         
         # 轮询控制状态
         self.polling_active = False
@@ -496,29 +496,35 @@ class CompleteTelegramMediaBot:
                 'timer': None,
                 'last_message_time': current_time,
                 'start_time': current_time,
-                'status': 'collecting',  # collecting, downloading
+                'status': 'collecting',  # collecting, downloading, completed
                 'download_start_time': None
             }
+            
+            # 只在新建媒体组时设置定时器
+            logger.info(f"📦 创建新媒体组 {media_group_id}")
+            self.media_groups[media_group_id]['timer'] = asyncio.create_task(
+                self._process_media_group_after_timeout(media_group_id, context)
+            )
+        
+        # 如果媒体组已经在下载或完成，忽略新消息
+        if self.media_groups[media_group_id]['status'] != 'collecting':
+            logger.info(f"媒体组 {media_group_id} 状态为 {self.media_groups[media_group_id]['status']}，忽略新消息")
+            return
         
         # 添加消息到媒体组
         self.media_groups[media_group_id]['messages'].append(message)
         self.media_groups[media_group_id]['last_message_time'] = current_time
         logger.info(f"媒体组 {media_group_id} 现在有 {len(self.media_groups[media_group_id]['messages'])} 条消息")
         
-        # 取消之前的定时器
-        if self.media_groups[media_group_id]['timer']:
-            self.media_groups[media_group_id]['timer'].cancel()
-        
-        # 设置新的定时器
-        self.media_groups[media_group_id]['timer'] = asyncio.create_task(
-            self._process_media_group_after_timeout(media_group_id, context)
-        )
+        # 关键修复：不再重复取消和重新设置定时器！
+        # 让原始定时器继续运行，它会在超时后检查 last_message_time
 
     async def _process_media_group_after_timeout(self, media_group_id: str, context: ContextTypes.DEFAULT_TYPE):
         """智能处理媒体组超时"""
         try:
-            # 等待超时
-            await asyncio.sleep(self.media_group_timeout)
+            # 等待超时（收集阶段用短间隔，下载阶段用长间隔）
+            sleep_time = self.media_group_timeout if media_group_id not in self.media_groups or self.media_groups[media_group_id]['status'] == 'collecting' else self.download_progress_check_interval
+            await asyncio.sleep(sleep_time)
             
             if media_group_id not in self.media_groups:
                 return
@@ -528,38 +534,49 @@ class CompleteTelegramMediaBot:
             
             # 状态机处理
             if group_data['status'] == 'collecting':
-                # 收集阶段：检查是否还有新消息
-                if current_time - group_data['last_message_time'] < self.media_group_timeout:
-                    # 还有新消息，重新设置定时器
+                # 检查是否最近有新消息
+                time_since_last_message = current_time - group_data['last_message_time']
+                total_wait_time = current_time - group_data['start_time']
+                
+                logger.info(f"📦 媒体组 {media_group_id} 检查: 距上次消息 {time_since_last_message:.1f}s, 总等待 {total_wait_time:.1f}s")
+                
+                if time_since_last_message < self.media_group_timeout and total_wait_time < self.media_group_max_wait:
+                    # 还有新消息且未超过最大等待时间，继续等待
+                    logger.info(f"📦 媒体组 {media_group_id} 继续等待新消息...")
                     group_data['timer'] = asyncio.create_task(
                         self._process_media_group_after_timeout(media_group_id, context)
                     )
                     return
-                elif current_time - group_data['start_time'] > self.media_group_max_wait:
-                    # 超过最大等待时间，强制开始下载
-                    logger.warning(f"媒体组 {media_group_id} 等待新消息超时，开始下载")
-                    await self._start_media_group_download(media_group_id, context)
                 else:
-                    # 开始下载
+                    # 没有新消息或超过最大等待时间，开始下载
+                    reason = "超过最大等待时间" if total_wait_time >= self.media_group_max_wait else "没有新消息"
+                    logger.info(f"📦 媒体组 {media_group_id} {reason}，开始下载 ({len(group_data['messages'])} 条消息)")
                     await self._start_media_group_download(media_group_id, context)
                     
             elif group_data['status'] == 'downloading':
                 # 下载阶段：检查下载超时
                 download_time = current_time - group_data['download_start_time']
                 if download_time > self.download_timeout:
-                    logger.error(f"媒体组 {media_group_id} 下载超时（{download_time:.1f}秒），放弃处理")
+                    logger.error(f"❌ 媒体组 {media_group_id} 下载超时（{download_time:.1f}秒），放弃处理")
                     del self.media_groups[media_group_id]
                 else:
                     # 继续等待下载完成
-                    logger.info(f"媒体组 {media_group_id} 正在下载中，已用时 {download_time:.1f} 秒")
+                    minutes = int(download_time // 60)
+                    seconds = int(download_time % 60)
+                    if minutes > 0:
+                        time_str = f"{minutes}分{seconds}秒"
+                    else:
+                        time_str = f"{seconds}秒"
+                    
+                    logger.info(f"📥 媒体组 {media_group_id} 正在下载中，已用时 {time_str} (超时时间: {self.download_timeout//60}分钟)")
                     group_data['timer'] = asyncio.create_task(
                         self._process_media_group_after_timeout(media_group_id, context)
                     )
                 
         except asyncio.CancelledError:
-            logger.info(f"媒体组 {media_group_id} 的处理被取消")
+            logger.info(f"⏹️ 媒体组 {media_group_id} 的处理被取消")
         except Exception as e:
-            logger.error(f"处理媒体组 {media_group_id} 时出错: {e}")
+            logger.error(f"❌ 处理媒体组 {media_group_id} 时出错: {e}")
             # 清理媒体组缓存
             if media_group_id in self.media_groups:
                 del self.media_groups[media_group_id]
@@ -630,6 +647,9 @@ class CompleteTelegramMediaBot:
                     
                     download_time = asyncio.get_event_loop().time() - group_data['download_start_time']
                     logger.info(f"🎉 成功转发媒体组 {media_group_id} 到目标频道！包含 {len(all_downloaded_files)} 个文件，总耗时 {download_time:.1f} 秒")
+                    
+                    # 更新状态为完成
+                    group_data['status'] = 'completed'
                     
                     # 自动清理已成功发布的文件
                     logger.info(f"🧹 开始清理媒体组 {media_group_id} 的本地文件...")
