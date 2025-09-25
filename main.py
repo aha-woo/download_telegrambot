@@ -409,18 +409,20 @@ class CompleteTelegramMediaBot:
             
             logger.info(f"📥 收到来自源频道的消息 {message.message_id}")
             
-            # 添加随机延迟模拟人工操作
-            if self.config.delay_enabled:
-                delay = random.uniform(self.config.min_delay, self.config.max_delay)
-                logger.info(f"⏱️ 等待 {delay:.1f}s 后处理消息（模拟人工操作）")
-                await asyncio.sleep(delay)
-            
             # 检查是否是媒体组消息
             if message.media_group_id:
                 logger.info(f"消息 {message.message_id} 属于媒体组: {message.media_group_id}")
                 await self._handle_media_group_message(message, context)
             else:
-                # 处理单独的消息
+                # 处理单独的消息，在这里添加整个消息的延迟
+                logger.info(f"📝 处理单独消息 {message.message_id}")
+                
+                # 添加消息级延迟模拟人工操作
+                if self.config.delay_enabled:
+                    delay = random.uniform(self.config.min_delay, self.config.max_delay)
+                    logger.info(f"⏱️ 单独消息处理前等待 {delay:.1f}s（模拟人工操作）")
+                    await asyncio.sleep(delay)
+                
                 await self._handle_single_message(message, context)
             
             # 更新统计
@@ -437,11 +439,7 @@ class CompleteTelegramMediaBot:
             if self.bot_handler.has_media(message):
                 logger.info(f"📥 消息 {message.message_id} 包含媒体，开始下载...")
                 
-                # 添加下载前的随机延迟
-                if self.config.delay_enabled:
-                    delay = random.uniform(self.config.download_delay_min, self.config.download_delay_max)
-                    logger.info(f"⏱️ 下载前等待 {delay:.1f}s（模拟人工操作）")
-                    await asyncio.sleep(delay)
+                # 消息级延迟已在上层处理，这里直接下载
                 
                 # 下载媒体文件
                 downloaded_files = await self.media_downloader.download_media(message, context.bot)
@@ -449,11 +447,7 @@ class CompleteTelegramMediaBot:
                 if downloaded_files:
                     logger.info(f"📥 消息 {message.message_id} 下载完成，共 {len(downloaded_files)} 个文件")
                     
-                    # 添加转发前的随机延迟
-                    if self.config.delay_enabled:
-                        delay = random.uniform(self.config.forward_delay_min, self.config.forward_delay_max)
-                        logger.info(f"⏱️ 转发前等待 {delay:.1f}s（模拟人工操作）")
-                        await asyncio.sleep(delay)
+                    # 消息级延迟已在上层处理，这里直接转发
                     
                     logger.info(f"📤 开始转发消息 {message.message_id} 到目标频道...")
                     
@@ -471,11 +465,7 @@ class CompleteTelegramMediaBot:
             else:
                 logger.info(f"📝 消息 {message.message_id} 是纯文本消息")
                 
-                # 添加转发前的随机延迟
-                if self.config.delay_enabled:
-                    delay = random.uniform(self.config.forward_delay_min, self.config.forward_delay_max)
-                    logger.info(f"⏱️ 转发前等待 {delay:.1f}s（模拟人工操作）")
-                    await asyncio.sleep(delay)
+                # 消息级延迟已在上层处理，这里直接转发
                 
                 # 转发纯文本消息
                 await self.bot_handler.forward_text_message(message, context.bot)
@@ -497,7 +487,7 @@ class CompleteTelegramMediaBot:
                 'last_message_time': current_time,
                 'start_time': current_time,
                 'status': 'collecting',  # collecting, downloading, completed
-                'download_start_time': None
+                'download_start_time': None,
             }
             
             # 只在新建媒体组时设置定时器
@@ -506,9 +496,18 @@ class CompleteTelegramMediaBot:
                 self._process_media_group_after_timeout(media_group_id, context)
             )
         
-        # 如果媒体组已经在下载或完成，忽略新消息
-        if self.media_groups[media_group_id]['status'] != 'collecting':
-            logger.info(f"媒体组 {media_group_id} 状态为 {self.media_groups[media_group_id]['status']}，忽略新消息")
+        # 如果媒体组已经完成，忽略新消息
+        if self.media_groups[media_group_id]['status'] == 'completed':
+            logger.info(f"媒体组 {media_group_id} 已完成，忽略新消息")
+            return
+        
+        # 如果媒体组正在下载，说明这是延迟到达的消息，应该添加到当前媒体组
+        if self.media_groups[media_group_id]['status'] == 'downloading':
+            logger.info(f"媒体组 {media_group_id} 正在下载，将延迟消息 {message.message_id} 加入当前组")
+            # 直接添加到当前媒体组的消息列表，而不是等待队列
+            self.media_groups[media_group_id]['messages'].append(message)
+            self.media_groups[media_group_id]['last_message_time'] = current_time
+            logger.info(f"媒体组 {media_group_id} 现在有 {len(self.media_groups[media_group_id]['messages'])} 条消息（包含延迟消息）")
             return
         
         # 添加消息到媒体组
@@ -594,12 +593,12 @@ class CompleteTelegramMediaBot:
             group_data['status'] = 'downloading'
             group_data['download_start_time'] = asyncio.get_event_loop().time()
             
-            logger.info(f"开始下载媒体组 {media_group_id}，包含 {len(messages)} 条消息")
+            logger.info(f"开始处理媒体组 {media_group_id}，包含 {len(messages)} 条消息")
             
-            # 添加随机延迟
+            # 添加消息级延迟（以整个媒体组为单位）
             if self.config.delay_enabled:
-                delay = random.uniform(self.config.download_delay_min, self.config.download_delay_max)
-                logger.info(f"媒体组 {media_group_id} 将在 {delay:.1f} 秒后开始下载")
+                delay = random.uniform(self.config.min_delay, self.config.max_delay)
+                logger.info(f"⏱️ 媒体组 {media_group_id} 处理前等待 {delay:.1f}s（模拟人工操作）")
                 await asyncio.sleep(delay)
             
             # 设置下载进度监控
@@ -607,17 +606,27 @@ class CompleteTelegramMediaBot:
                 self._process_media_group_after_timeout(media_group_id, context)
             )
             
-            # 下载所有媒体文件
+            # 下载所有媒体文件（动态更新消息列表）
             all_downloaded_files = []
-            total_messages = len(messages)
             
             logger.info(f"📥 开始下载媒体组 {media_group_id} 的所有文件...")
-            for i, message in enumerate(messages, 1):
+            
+            i = 0
+            while i < len(group_data['messages']):
+                message = group_data['messages'][i]
+                current_total = len(group_data['messages'])
+                
                 if self.bot_handler.has_media(message):
-                    logger.info(f"📥 下载媒体组 {media_group_id} 第 {i}/{total_messages} 个文件")
+                    logger.info(f"📥 下载媒体组 {media_group_id} 第 {i+1}/{current_total} 个文件")
                     downloaded_files = await self.media_downloader.download_media(message, context.bot)
                     all_downloaded_files.extend(downloaded_files)
-                    logger.info(f"✅ 完成下载第 {i}/{total_messages} 个文件，共获得 {len(downloaded_files)} 个文件")
+                    logger.info(f"✅ 完成下载第 {i+1}/{current_total} 个文件，共获得 {len(downloaded_files)} 个文件")
+                
+                i += 1
+                
+                # 检查是否有新消息在下载过程中添加
+                if len(group_data['messages']) > current_total:
+                    logger.info(f"📦 下载过程中发现新消息，媒体组 {media_group_id} 现在有 {len(group_data['messages'])} 条消息")
             
             logger.info(f"📥 媒体组 {media_group_id} 所有文件下载完成，共 {len(all_downloaded_files)} 个文件")
             
@@ -625,13 +634,8 @@ class CompleteTelegramMediaBot:
             if group_data['timer']:
                 group_data['timer'].cancel()
             
-            # 转发消息
+            # 转发消息（消息级延迟已在上层处理）
             if all_downloaded_files:
-                # 添加转发前的随机延迟
-                if self.config.delay_enabled:
-                    delay = random.uniform(self.config.forward_delay_min, self.config.forward_delay_max)
-                    logger.info(f"⏱️ 媒体组转发前等待 {delay:.1f}s（模拟人工操作）")
-                    await asyncio.sleep(delay)
                 
                 # 使用第一条消息作为代表进行转发
                 representative_message = messages[0]
@@ -664,6 +668,8 @@ class CompleteTelegramMediaBot:
             else:
                 logger.warning(f"⚠️ 媒体组 {media_group_id} 没有可下载的媒体文件")
             
+            # 不再需要处理等待队列，因为延迟消息已经直接加入当前媒体组
+            
             # 清理媒体组缓存
             del self.media_groups[media_group_id]
             
@@ -690,6 +696,7 @@ class CompleteTelegramMediaBot:
                     logger.info(f"已清理文件: {file_path}")
             except Exception as e:
                 logger.error(f"清理文件 {file_info} 失败: {e}")
+
 
     async def error_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """错误处理"""
