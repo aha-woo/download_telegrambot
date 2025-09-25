@@ -56,6 +56,11 @@ class Config:
         self.media_group_timeout = int(os.getenv('MEDIA_GROUP_TIMEOUT', '3'))  # 秒 - 等待更多消息的时间
         self.media_group_max_wait = int(os.getenv('MEDIA_GROUP_MAX_WAIT', '60'))  # 秒 - 等待新消息的最大时间
         
+        # 网络超时配置
+        self.upload_connect_timeout = int(os.getenv('UPLOAD_CONNECT_TIMEOUT', '120'))  # 秒 - 连接超时（默认2分钟）
+        self.upload_read_timeout = int(os.getenv('UPLOAD_READ_TIMEOUT', '1800'))  # 秒 - 读取超时（默认30分钟）
+        self.upload_write_timeout = int(os.getenv('UPLOAD_WRITE_TIMEOUT', '1800'))  # 秒 - 写入超时（默认30分钟）
+        
         # 验证配置
         self._validate_config()
     
@@ -141,6 +146,20 @@ class Config:
         if self.download_timeout < 60:
             raise ValueError("下载超时时间至少应为60秒")
         
+        # 验证网络超时配置
+        if self.upload_connect_timeout <= 0:
+            raise ValueError("上传连接超时时间必须大于0")
+        if self.upload_read_timeout <= 0:
+            raise ValueError("上传读取超时时间必须大于0")
+        if self.upload_write_timeout <= 0:
+            raise ValueError("上传写入超时时间必须大于0")
+        if self.upload_connect_timeout < 10:
+            raise ValueError("连接超时时间至少应为10秒")
+        if self.upload_read_timeout < 60:
+            raise ValueError("读取超时时间至少应为60秒")
+        if self.upload_write_timeout < 60:
+            raise ValueError("写入超时时间至少应为60秒")
+        
         # 验证时间格式
         if self.time_control_enabled:
             try:
@@ -209,6 +228,7 @@ class Config:
             polling_info += f" (时间段:{self.start_time}-{self.end_time} {self.timezone})"
         
         download_info = f"超时:{self.download_timeout//60}分钟, 媒体组等待:{self.media_group_max_wait}s"
+        network_info = f"连接:{self.upload_connect_timeout}s, 读写:{self.upload_read_timeout//60}分钟"
         
         return f"""
 配置信息:
@@ -221,4 +241,5 @@ class Config:
 - 随机延迟: {delay_info}
 - 轮询控制: {polling_info}
 - 下载配置: {download_info}
+- 网络超时: {network_info}
 """

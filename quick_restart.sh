@@ -1,6 +1,6 @@
 #!/bin/bash
 
-echo "🔄 快速重启机器人（修复Caption长度限制）..."
+echo "🔄 快速重启机器人（配置化网络超时设置）..."
 
 # 停止当前进程
 pm2 stop mytestxiazai-bot 2>/dev/null || echo "进程未运行"
@@ -10,12 +10,12 @@ pm2 delete mytestxiazai-bot 2>/dev/null || echo "进程不存在"
 > logs/error.log 2>/dev/null || true
 > logs/out.log 2>/dev/null || true
 
-echo "✅ 已修复关键问题:"
-echo "  - 媒体组处理逻辑优化"
-echo "  - 增加下载超时到2小时（支持大文件）"
-echo "  - 修复Caption长度限制问题"
-echo "  - 智能截断过长文本（在句子边界）"
-echo "  - 支持频道用户名和ID格式"
+echo "✅ 已配置化网络超时设置:"
+echo "  - 超时时间可通过环境变量调整"
+echo "  - UPLOAD_CONNECT_TIMEOUT（连接超时）"
+echo "  - UPLOAD_READ_TIMEOUT（读取超时）"
+echo "  - UPLOAD_WRITE_TIMEOUT（写入超时）"
+echo "  - 默认支持1GB文件（30分钟超时）"
 
 # 重启
 pm2 start ecosystem.config.js
@@ -32,8 +32,11 @@ pm2 logs mytestxiazai-bot --lines 10
 
 echo ""
 echo "✅ 重启完成！"
-echo "📋 现在应该："
-echo "  1. 媒体组能正常下载和转发"
-echo "  2. 过长的Caption自动截断"
-echo "  3. 不再出现'Message caption is too long'错误"
-echo "  4. 所有功能正常工作"
+echo "📋 现在可以根据网络情况调整超时："
+echo ""
+echo "🌐 常见网络速度建议："
+echo "  1-5 Mbps:   设置 UPLOAD_WRITE_TIMEOUT=3600 (1小时)"
+echo "  5-20 Mbps:  默认设置 1800秒 (30分钟) ✅"
+echo "  20+ Mbps:   可减少到 UPLOAD_WRITE_TIMEOUT=900 (15分钟)"
+echo ""
+echo "💡 在 config.env 中修改这些值！"

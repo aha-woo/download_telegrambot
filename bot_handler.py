@@ -193,94 +193,118 @@ class TelegramBotHandler:
         file_path = file_info['path']
         media_type = file_info['type']
         
+        # 通用超时设置（从配置读取，支持大文件）
+        timeout_kwargs = {
+            'read_timeout': self.config.upload_read_timeout,
+            'write_timeout': self.config.upload_write_timeout,
+            'connect_timeout': self.config.upload_connect_timeout
+        }
+        
         with open(file_path, 'rb') as file:
             if media_type == 'photo':
                 await bot.send_photo(
                     chat_id=self.config.target_channel_id,
                     photo=file,
                     caption=caption,
-                    parse_mode='HTML'
+                    parse_mode='HTML',
+                    **timeout_kwargs
                 )
             elif media_type == 'video':
                 await bot.send_video(
                     chat_id=self.config.target_channel_id,
                     video=file,
                     caption=caption,
-                    parse_mode='HTML'
+                    parse_mode='HTML',
+                    **timeout_kwargs
                 )
             elif media_type == 'document':
                 await bot.send_document(
                     chat_id=self.config.target_channel_id,
                     document=file,
                     caption=caption,
-                    parse_mode='HTML'
+                    parse_mode='HTML',
+                    **timeout_kwargs
                 )
             elif media_type == 'audio':
                 await bot.send_audio(
                     chat_id=self.config.target_channel_id,
                     audio=file,
                     caption=caption,
-                    parse_mode='HTML'
+                    parse_mode='HTML',
+                    **timeout_kwargs
                 )
             elif media_type == 'voice':
                 await bot.send_voice(
                     chat_id=self.config.target_channel_id,
                     voice=file,
                     caption=caption,
-                    parse_mode='HTML'
+                    parse_mode='HTML',
+                    **timeout_kwargs
                 )
             elif media_type == 'video_note':
                 await bot.send_video_note(
                     chat_id=self.config.target_channel_id,
                     video_note=file,
-                    caption=caption,
-                    parse_mode='HTML'
+                    **timeout_kwargs
                 )
             elif media_type == 'animation':
                 await bot.send_animation(
                     chat_id=self.config.target_channel_id,
                     animation=file,
                     caption=caption,
-                    parse_mode='HTML'
+                    parse_mode='HTML',
+                    **timeout_kwargs
                 )
             elif media_type == 'sticker':
                 await bot.send_sticker(
                     chat_id=self.config.target_channel_id,
-                    sticker=file
+                    sticker=file,
+                    **timeout_kwargs
                 )
     
     async def _send_media_group(self, message: Message, file_infos: List[dict], caption: str, bot):
         """发送媒体组"""
         media_list = []
         
-        for i, file_info in enumerate(file_infos):
-            file_path = file_info['path']
+        # 读取所有文件内容到内存，避免文件句柄关闭问题
+        file_contents = []
+        for file_info in file_infos:
+            with open(file_info['path'], 'rb') as f:
+                file_contents.append(f.read())
+        
+        for i, (file_info, file_content) in enumerate(zip(file_infos, file_contents)):
             media_type = file_info['type']
             
-            with open(file_path, 'rb') as file:
-                # 只在第一个媒体上添加说明文字
-                if i == 0 and caption:
-                    if media_type == 'photo':
-                        media = InputMediaPhoto(media=file, caption=caption, parse_mode='HTML')
-                    elif media_type == 'video':
-                        media = InputMediaVideo(media=file, caption=caption, parse_mode='HTML')
-                    else:
-                        media = InputMediaDocument(media=file, caption=caption, parse_mode='HTML')
+            # 只在第一个媒体上添加说明文字
+            if i == 0 and caption:
+                if media_type == 'photo':
+                    media = InputMediaPhoto(media=file_content, caption=caption, parse_mode='HTML')
+                elif media_type == 'video':
+                    media = InputMediaVideo(media=file_content, caption=caption, parse_mode='HTML')
                 else:
-                    if media_type == 'photo':
-                        media = InputMediaPhoto(media=file)
-                    elif media_type == 'video':
-                        media = InputMediaVideo(media=file)
-                    else:
-                        media = InputMediaDocument(media=file)
-                
-                media_list.append(media)
+                    media = InputMediaDocument(media=file_content, caption=caption, parse_mode='HTML')
+            else:
+                if media_type == 'photo':
+                    media = InputMediaPhoto(media=file_content)
+                elif media_type == 'video':
+                    media = InputMediaVideo(media=file_content)
+                else:
+                    media = InputMediaDocument(media=file_content)
+            
+            media_list.append(media)
         
-        # 发送媒体组
+        logger.info(f"📤 准备发送媒体组，包含 {len(media_list)} 个媒体文件")
+        
+        # 发送媒体组（使用配置的超时时间，支持大文件如1GB视频）
         await bot.send_media_group(
             chat_id=self.config.target_channel_id,
-            media=media_list
+            media=media_list,
+            read_timeout=self.config.upload_read_timeout,
+            write_timeout=self.config.upload_write_timeout,
+            connect_timeout=self.config.upload_connect_timeout
         )
+        
+        logger.info(f"✅ 成功发送媒体组，包含 {len(media_list)} 个媒体文件")
     
     def _build_forward_text(self, message: Message) -> str:
         """构建消息文本（不显示转发信息）"""
