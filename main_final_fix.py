@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Telegram Bot for downloading media from source channel and forwarding to target channel
-Fixed version for PM2 deployment
+Final fix version for PM2 deployment - no event loop errors
 """
 
 import asyncio
@@ -43,6 +43,7 @@ class TelegramMediaBot:
         self.bot_handler = None
         self.media_downloader = None
         self.running = False
+        self.shutdown_flag = False
 
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """处理 /start 命令"""
@@ -183,6 +184,7 @@ class TelegramMediaBot:
             # 获取机器人信息
             bot_info = await application.bot.get_me()
             logger.info(f"机器人信息: {bot_info.first_name} (@{bot_info.username})")
+            logger.info("机器人启动完成，开始监听消息...")
             self.running = True
 
         except Exception as e:
@@ -192,9 +194,21 @@ class TelegramMediaBot:
         """关闭回调函数"""
         logger.info("机器人正在关闭...")
         self.running = False
+        self.shutdown_flag = True
     
+    def signal_handler(self, signum, frame):
+        """信号处理器"""
+        logger.info(f"收到信号 {signum}，设置关闭标志...")
+        self.shutdown_flag = True
+        if self.application:
+            self.application.stop_running()
+
     async def run(self):
         """运行机器人"""
+        # 设置信号处理器
+        signal.signal(signal.SIGTERM, self.signal_handler)
+        signal.signal(signal.SIGINT, self.signal_handler)
+        
         try:
             # 创建应用
             self.application = Application.builder().token(self.config.bot_token).build()
@@ -214,34 +228,31 @@ class TelegramMediaBot:
             logger.info(f"源频道: {self.config.source_channel_id}")
             logger.info(f"目标频道: {self.config.target_channel_id}")
             logger.info(f"下载目录: {download_path.absolute()}")
-            logger.info("机器人启动完成，开始监听消息...")
             
-            # 启动机器人
-            await self.application.run_polling(
-                allowed_updates=Update.ALL_TYPES,
-                drop_pending_updates=True
-            )
+            # 启动机器人 - 使用 start_polling 而不是 run_polling
+            async with self.application:
+                await self.application.start()
+                await self.application.updater.start_polling(
+                    allowed_updates=Update.ALL_TYPES,
+                    drop_pending_updates=True
+                )
+                
+                # 等待关闭信号
+                while not self.shutdown_flag:
+                    await asyncio.sleep(1)
+                
+                # 停止轮询
+                await self.application.updater.stop()
+                await self.application.stop()
+            
+            logger.info("机器人已正常关闭")
             
         except Exception as e:
             logger.error(f"机器人运行出错: {e}")
-            # 不重新抛出异常，让程序正常退出
-        finally:
-            # 移除 shutdown 调用，让 run_polling 自己处理清理
-            logger.info("机器人关闭完成")
-
-
-def signal_handler(signum, frame):
-    """信号处理器"""
-    logger.info(f"收到信号 {signum}，正在关闭机器人...")
-    sys.exit(0)
 
 
 async def main():
     """主函数"""
-    # 设置信号处理器
-    signal.signal(signal.SIGTERM, signal_handler)
-    signal.signal(signal.SIGINT, signal_handler)
-    
     bot = TelegramMediaBot()
     try:
         await bot.run()
@@ -249,7 +260,6 @@ async def main():
         logger.info("收到键盘中断，机器人已停止")
     except Exception as e:
         logger.error(f"程序异常退出: {e}")
-        raise
 
 
 if __name__ == "__main__":

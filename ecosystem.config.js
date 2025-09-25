@@ -1,7 +1,7 @@
 module.exports = {
   apps: [{
     name: 'mytestxiazai-bot',
-    script: 'main_fixed.py',
+    script: 'main.py',
     interpreter: 'python3',
     cwd: '/root/mytestxiazai_bot',
     env: {
