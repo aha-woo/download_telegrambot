@@ -375,8 +375,23 @@ class CompleteTelegramMediaBot:
         """处理消息"""
         try:
             # 检查消息是否来自源频道
-            if update.effective_chat.id != int(self.config.source_channel_id.replace('@', '').replace('-100', '')):
+            source_chat = update.effective_chat
+            if source_chat is None:
                 return
+            
+            # 支持频道用户名和ID两种格式
+            if self.config.source_channel_id.startswith('@'):
+                # 用户名格式：@channelname
+                if source_chat.username != self.config.source_channel_id.replace('@', ''):
+                    return
+            else:
+                # ID格式：-1001234567890
+                try:
+                    if source_chat.id != int(self.config.source_channel_id):
+                        return
+                except ValueError:
+                    # 如果转换失败，跳过此消息
+                    return
             
             # 如果自定义轮询未激活，不处理源频道消息
             if not self.polling_active:
