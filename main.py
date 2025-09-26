@@ -72,7 +72,7 @@ class CompleteTelegramMediaBot:
         
         await update.message.reply_text(
             "🤖 Telegram媒体转发机器人已启动！\n\n"
-            f"📊 轮询状态: {polling_status}\n"
+            f"📊 消息轮询: {polling_status}\n"
             f"⏱️ 轮询间隔: {self.config.polling_interval}秒\n"
             f"⏰ 在允许时间段: {in_time_range}\n\n"
             f"📡 源频道: {self.config.source_channel_id}\n"
@@ -231,15 +231,16 @@ class CompleteTelegramMediaBot:
             status_message = (
                 f"🤖 机器人状态报告\n\n"
                 f"🔹 机器人: {bot_info.first_name} (@{bot_info.username})\n"
-                f"🔹 运行状态: {'✅ 正常运行' if self.running else '❌ 未运行'}\n"
-                f"🔹 轮询状态: {polling_status}\n\n"
+                f"🔹 Bot应用: {'✅ 正常运行' if self.running else '❌ 未运行'}\n"
+                f"🔹 消息轮询: {polling_status}\n\n"
                 f"📱 源频道: {source_status}\n"
                 f"🎯 目标频道: {target_status}\n"
                 f"📁 下载目录: {download_status}\n\n"
                 f"⚙️ 配置信息:\n"
                 f"• 代理: {'启用' if self.config.proxy_enabled else '禁用'}\n"
                 f"• 延迟: {'启用' if self.config.delay_enabled else '禁用'}\n"
-                f"• 时间控制: {'启用' if self.config.time_control_enabled else '禁用'}\n\n"
+                f"• 时间控制: {'启用' if self.config.time_control_enabled else '禁用'}\n"
+                f"• Caption模式: {'固定' if self.config.fixed_caption else '追加' if self.config.append_caption else '原始'}\n\n"
                 f"⏰ 检查时间: {update.message.date}"
             )
             
@@ -987,6 +988,10 @@ class CompleteTelegramMediaBot:
             # 启动应用
             async with self.application:
                 await self.application.start()
+                
+                # 手动设置运行状态（确保状态正确）
+                self.running = True
+                logger.info("✅ Bot应用已启动，运行状态已设置为True")
                 
                 # 始终启动标准轮询以处理命令
                 await self.application.updater.start_polling(
