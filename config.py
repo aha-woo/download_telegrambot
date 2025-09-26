@@ -61,6 +61,10 @@ class Config:
         self.upload_read_timeout = int(os.getenv('UPLOAD_READ_TIMEOUT', '1800'))  # 秒 - 读取超时（默认30分钟）
         self.upload_write_timeout = int(os.getenv('UPLOAD_WRITE_TIMEOUT', '1800'))  # 秒 - 写入超时（默认30分钟）
         
+        # Caption管理配置 - 运行时设置，不从环境变量读取
+        self.fixed_caption = None  # 固定caption内容，如果设置则替换所有消息的caption
+        self.append_caption = None  # 追加到原caption后面的内容
+        
         # 验证配置
         self._validate_config()
     

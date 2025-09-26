@@ -308,16 +308,28 @@ class TelegramBotHandler:
     
     def _build_forward_text(self, message: Message) -> str:
         """构建消息文本（不显示转发信息）"""
-        text_parts = []
         
-        # 添加原始消息文本
-        if message.text:
-            text_parts.append(message.text)
-        elif message.caption:
-            text_parts.append(message.caption)
-        
-        # 不再添加转发信息，让消息看起来像原创内容
-        result_text = '\n'.join(text_parts) if text_parts else ""
+        # 检查是否设置了固定caption
+        if self.config.fixed_caption is not None:
+            # 使用固定caption替换原内容
+            result_text = self.config.fixed_caption
+            logger.info(f"使用固定caption: {result_text[:50]}...")
+        else:
+            # 使用原始消息内容
+            text_parts = []
+            
+            # 添加原始消息文本
+            if message.text:
+                text_parts.append(message.text)
+            elif message.caption:
+                text_parts.append(message.caption)
+            
+            result_text = '\n'.join(text_parts) if text_parts else ""
+            
+            # 检查是否需要追加内容
+            if self.config.append_caption is not None and result_text:
+                result_text = result_text + '\n\n' + self.config.append_caption
+                logger.info(f"追加caption内容: {self.config.append_caption[:30]}...")
         
         # 限制caption长度（Telegram限制为1024字符）
         return self._truncate_caption(result_text)

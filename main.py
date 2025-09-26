@@ -88,11 +88,18 @@ class CompleteTelegramMediaBot:
             "• /selective_forward keyword <关键词> - 按关键词转发\n"
             "• /selective_forward type <类型> - 按消息类型转发\n"
             "• /selective_forward recent <数量> - 转发最近N条消息\n\n"
+            "📝 Caption管理命令:\n"
+            "• /set_fixed_caption <内容> - 设置固定caption（替换所有消息的内容）\n"
+            "• /set_append_caption <内容> - 设置追加caption（在原内容后追加）\n"
+            "• /set_fixed_caption clear - 清除固定caption设置\n"
+            "• /set_append_caption clear - 清除追加caption设置\n\n"
             "📝 使用示例:\n"
             "• /random_download 5\n"
             "• /selective_forward keyword 新品\n"
             "• /selective_forward type photo\n"
-            "• /selective_forward recent 10"
+            "• /selective_forward recent 10\n"
+            "• /set_fixed_caption 欢迎关注我们的频道\n"
+            "• /set_append_caption \\n\\n👆点击链接了解更多"
         )
 
     # 轮询控制命令
@@ -370,6 +377,92 @@ class CompleteTelegramMediaBot:
         """转发最近N条消息"""
         await update.message.reply_text(f"🔍 转发最近 {count} 条消息...")
         # 实现最近消息转发逻辑
+    
+    async def set_fixed_caption_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """设置固定caption命令 - 替换所有消息的caption为指定内容"""
+        try:
+            if not context.args:
+                # 查看当前设置
+                if self.config.fixed_caption is not None:
+                    await update.message.reply_text(
+                        f"📝 当前固定caption:\n{self.config.fixed_caption}\n\n"
+                        "💡 使用方法:\n"
+                        "• 设置新内容: /set_fixed_caption <新caption内容>\n"
+                        "• 清除设置: /set_fixed_caption clear"
+                    )
+                else:
+                    await update.message.reply_text(
+                        "📝 当前未设置固定caption\n\n"
+                        "💡 使用方法:\n"
+                        "• 设置内容: /set_fixed_caption <caption内容>\n"
+                        "• 清除设置: /set_fixed_caption clear\n\n"
+                        "🔍 示例: /set_fixed_caption 欢迎关注我们的频道获取最新资讯"
+                    )
+                return
+            
+            caption_text = " ".join(context.args)
+            
+            if caption_text.lower() == "clear":
+                # 清除固定caption设置
+                self.config.fixed_caption = None
+                await update.message.reply_text("✅ 已清除固定caption设置，将使用原始消息内容")
+                logger.info("管理员清除了固定caption设置")
+            else:
+                # 设置固定caption
+                self.config.fixed_caption = caption_text
+                await update.message.reply_text(
+                    f"✅ 已设置固定caption:\n{caption_text}\n\n"
+                    "📢 后续所有转发的消息都将使用此caption内容"
+                )
+                logger.info(f"管理员设置固定caption: {caption_text[:50]}...")
+                
+        except Exception as e:
+            logger.error(f"设置固定caption失败: {e}")
+            await update.message.reply_text(f"❌ 设置失败: {str(e)}")
+    
+    async def set_append_caption_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """设置追加caption命令 - 在原消息内容后追加指定内容"""
+        try:
+            if not context.args:
+                # 查看当前设置
+                if self.config.append_caption is not None:
+                    await update.message.reply_text(
+                        f"📝 当前追加caption:\n{self.config.append_caption}\n\n"
+                        "💡 使用方法:\n"
+                        "• 设置新内容: /set_append_caption <追加内容>\n"
+                        "• 清除设置: /set_append_caption clear"
+                    )
+                else:
+                    await update.message.reply_text(
+                        "📝 当前未设置追加caption\n\n"
+                        "💡 使用方法:\n"
+                        "• 设置内容: /set_append_caption <追加内容>\n"
+                        "• 清除设置: /set_append_caption clear\n\n"
+                        "🔍 示例: /set_append_caption \\n\\n👆点击链接了解更多详情"
+                    )
+                return
+            
+            append_text = " ".join(context.args)
+            
+            if append_text.lower() == "clear":
+                # 清除追加caption设置
+                self.config.append_caption = None
+                await update.message.reply_text("✅ 已清除追加caption设置，将不再追加内容")
+                logger.info("管理员清除了追加caption设置")
+            else:
+                # 设置追加caption
+                # 处理转义字符
+                append_text = append_text.replace('\\n', '\n').replace('\\t', '\t')
+                self.config.append_caption = append_text
+                await update.message.reply_text(
+                    f"✅ 已设置追加caption:\n{append_text}\n\n"
+                    "📢 后续所有转发的消息都将在原内容后追加此内容"
+                )
+                logger.info(f"管理员设置追加caption: {append_text[:50]}...")
+                
+        except Exception as e:
+            logger.error(f"设置追加caption失败: {e}")
+            await update.message.reply_text(f"❌ 设置失败: {str(e)}")
 
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """处理消息"""
@@ -713,6 +806,8 @@ class CompleteTelegramMediaBot:
         self.application.add_handler(CommandHandler("set_interval", self.set_interval_command))
         self.application.add_handler(CommandHandler("random_download", self.random_download_command))
         self.application.add_handler(CommandHandler("selective_forward", self.selective_forward_command))
+        self.application.add_handler(CommandHandler("set_fixed_caption", self.set_fixed_caption_command))
+        self.application.add_handler(CommandHandler("set_append_caption", self.set_append_caption_command))
         
         # 消息处理器
         self.application.add_handler(MessageHandler(
