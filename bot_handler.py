@@ -136,7 +136,7 @@ class TelegramBotHandler:
             except Exception as e:
                 logger.error(f"清理文件 {file_info} 失败: {e}")
     
-    async def forward_text_message(self, message: Message, bot=None):
+    async def forward_text_message(self, message: Message, bot=None, channel_mapping: dict = None):
         """发送纯文本消息（作为原创内容）"""
         try:
             # 获取bot实例
@@ -144,12 +144,15 @@ class TelegramBotHandler:
             if not bot_instance:
                 raise ValueError("无法获取bot实例")
             
-            # 构建消息文本
-            forward_text = self._build_forward_text(message)
+            # 构建消息文本（支持频道特定设置）
+            forward_text = self._build_forward_text(message, channel_mapping)
+            
+            # 获取目标频道ID
+            target_channel = channel_mapping['target_channel'] if channel_mapping else self.config.target_channel_id
             
             # 发送到目标频道
             await bot_instance.send_message(
-                chat_id=self.config.target_channel_id,
+                chat_id=target_channel,
                 text=forward_text,
                 parse_mode='HTML',
                 disable_web_page_preview=False
@@ -161,7 +164,7 @@ class TelegramBotHandler:
             logger.error(f"转发文本消息失败: {e}")
             raise
     
-    async def forward_message(self, message: Message, downloaded_files: List[dict], bot=None):
+    async def forward_message(self, message: Message, downloaded_files: List[dict], bot=None, channel_mapping: dict = None):
         """发送包含媒体的消息（作为原创内容）"""
         try:
             # 获取bot实例
@@ -169,8 +172,8 @@ class TelegramBotHandler:
             if not bot_instance:
                 raise ValueError("无法获取bot实例")
             
-            # 构建消息文本
-            forward_text = self._build_forward_text(message)
+            # 构建消息文本（支持频道特定设置）
+            forward_text = self._build_forward_text(message, channel_mapping)
             
             # 根据媒体类型和数量选择转发方式
             media_type = self.get_media_type(message)
@@ -188,10 +191,13 @@ class TelegramBotHandler:
             logger.error(f"转发媒体消息失败: {e}")
             raise
     
-    async def _send_single_media(self, message: Message, file_info: dict, caption: str, bot):
+    async def _send_single_media(self, message: Message, file_info: dict, caption: str, bot, channel_mapping: dict = None):
         """发送单个媒体文件"""
         file_path = file_info['path']
         media_type = file_info['type']
+        
+        # 获取目标频道ID
+        target_channel = channel_mapping['target_channel'] if channel_mapping else self.config.target_channel_id
         
         # 通用超时设置（从配置读取，支持大文件）
         timeout_kwargs = {
@@ -203,7 +209,7 @@ class TelegramBotHandler:
         with open(file_path, 'rb') as file:
             if media_type == 'photo':
                 await bot.send_photo(
-                    chat_id=self.config.target_channel_id,
+                    chat_id=target_channel,
                     photo=file,
                     caption=caption,
                     parse_mode='HTML',
@@ -211,7 +217,7 @@ class TelegramBotHandler:
                 )
             elif media_type == 'video':
                 await bot.send_video(
-                    chat_id=self.config.target_channel_id,
+                    chat_id=target_channel,
                     video=file,
                     caption=caption,
                     parse_mode='HTML',
@@ -219,7 +225,7 @@ class TelegramBotHandler:
                 )
             elif media_type == 'document':
                 await bot.send_document(
-                    chat_id=self.config.target_channel_id,
+                    chat_id=target_channel,
                     document=file,
                     caption=caption,
                     parse_mode='HTML',
@@ -227,7 +233,7 @@ class TelegramBotHandler:
                 )
             elif media_type == 'audio':
                 await bot.send_audio(
-                    chat_id=self.config.target_channel_id,
+                    chat_id=target_channel,
                     audio=file,
                     caption=caption,
                     parse_mode='HTML',
@@ -235,7 +241,7 @@ class TelegramBotHandler:
                 )
             elif media_type == 'voice':
                 await bot.send_voice(
-                    chat_id=self.config.target_channel_id,
+                    chat_id=target_channel,
                     voice=file,
                     caption=caption,
                     parse_mode='HTML',
@@ -243,13 +249,13 @@ class TelegramBotHandler:
                 )
             elif media_type == 'video_note':
                 await bot.send_video_note(
-                    chat_id=self.config.target_channel_id,
+                    chat_id=target_channel,
                     video_note=file,
                     **timeout_kwargs
                 )
             elif media_type == 'animation':
                 await bot.send_animation(
-                    chat_id=self.config.target_channel_id,
+                    chat_id=target_channel,
                     animation=file,
                     caption=caption,
                     parse_mode='HTML',
@@ -257,13 +263,16 @@ class TelegramBotHandler:
                 )
             elif media_type == 'sticker':
                 await bot.send_sticker(
-                    chat_id=self.config.target_channel_id,
+                    chat_id=target_channel,
                     sticker=file,
                     **timeout_kwargs
                 )
     
-    async def _send_media_group(self, message: Message, file_infos: List[dict], caption: str, bot):
+    async def _send_media_group(self, message: Message, file_infos: List[dict], caption: str, bot, channel_mapping: dict = None):
         """发送媒体组"""
+        # 获取目标频道ID
+        target_channel = channel_mapping['target_channel'] if channel_mapping else self.config.target_channel_id
+        
         media_list = []
         
         # 读取所有文件内容到内存，避免文件句柄关闭问题
@@ -297,7 +306,7 @@ class TelegramBotHandler:
         
         # 发送媒体组（使用配置的超时时间，支持大文件如1GB视频）
         await bot.send_media_group(
-            chat_id=self.config.target_channel_id,
+            chat_id=target_channel,
             media=media_list,
             read_timeout=self.config.upload_read_timeout,
             write_timeout=self.config.upload_write_timeout,
@@ -306,13 +315,28 @@ class TelegramBotHandler:
         
         logger.info(f"✅ 成功发送媒体组，包含 {len(media_list)} 个媒体文件")
     
-    def _build_forward_text(self, message: Message) -> str:
-        """构建消息文本（不显示转发信息）"""
+    def _build_forward_text(self, message: Message, channel_mapping: dict = None) -> str:
+        """构建消息文本（支持频道特定设置）"""
+        
+        # 获取caption设置（优先使用频道特定设置）
+        fixed_caption = None
+        append_caption = None
+        
+        if channel_mapping and 'settings' in channel_mapping:
+            settings = channel_mapping['settings']
+            fixed_caption = settings.get('fixed_caption')
+            append_caption = settings.get('append_caption')
+        
+        # 如果频道没有设置，使用全局设置
+        if fixed_caption is None:
+            fixed_caption = self.config.fixed_caption
+        if append_caption is None:
+            append_caption = self.config.append_caption
         
         # 检查是否设置了固定caption
-        if self.config.fixed_caption is not None:
+        if fixed_caption is not None:
             # 使用固定caption替换原内容
-            result_text = self.config.fixed_caption
+            result_text = fixed_caption
             logger.info(f"使用固定caption: {result_text[:50]}...")
         else:
             # 使用原始消息内容
@@ -327,9 +351,9 @@ class TelegramBotHandler:
             result_text = '\n'.join(text_parts) if text_parts else ""
             
             # 检查是否需要追加内容
-            if self.config.append_caption is not None and result_text:
-                result_text = result_text + '\n\n' + self.config.append_caption
-                logger.info(f"追加caption内容: {self.config.append_caption[:30]}...")
+            if append_caption is not None and result_text:
+                result_text = result_text + '\n\n' + append_caption
+                logger.info(f"追加caption内容: {append_caption[:30]}...")
         
         # 限制caption长度（Telegram限制为1024字符）
         return self._truncate_caption(result_text)

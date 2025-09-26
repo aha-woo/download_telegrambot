@@ -93,6 +93,11 @@ class CompleteTelegramMediaBot:
             "• /set_append_caption <内容> - 设置追加caption（在原内容后追加）\n"
             "• /set_fixed_caption clear - 清除固定caption设置\n"
             "• /set_append_caption clear - 清除追加caption设置\n\n"
+            "📋 多频道管理命令:\n"
+            "• /list_channels - 列出所有频道映射\n"
+            "• /add_channel <ID> <名称> <源频道> <目标频道> - 添加新频道\n"
+            "• /remove_channel <ID> - 删除频道映射\n"
+            "• /toggle_channel <ID> - 切换频道启用/禁用\n\n"
             "📝 使用示例:\n"
             "• /random_download 5\n"
             "• /selective_forward keyword 新品\n"
@@ -464,28 +469,218 @@ class CompleteTelegramMediaBot:
         except Exception as e:
             logger.error(f"设置追加caption失败: {e}")
             await update.message.reply_text(f"❌ 设置失败: {str(e)}")
+    
+    async def list_channels_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """列出所有频道映射命令"""
+        try:
+            if not self.config.channel_mappings:
+                await update.message.reply_text("📋 当前没有配置任何频道映射")
+                return
+            
+            message_parts = []
+            message_parts.append("📋 频道映射列表")
+            message_parts.append("=" * 30)
+            
+            for i, mapping in enumerate(self.config.channel_mappings, 1):
+                status = "🟢 启用" if mapping.get('enabled', True) else "🔴 禁用"
+                message_parts.append(
+                    f"{i}. {mapping['name']} {status}\n"
+                    f"   ID: {mapping['id']}\n"
+                    f"   源频道: {mapping['source_channel']}\n"
+                    f"   目标频道: {mapping['target_channel']}\n"
+                    f"   描述: {mapping.get('description', '无')}\n"
+                )
+            
+            message_parts.append("\n🔧 管理命令:")
+            message_parts.append("• /add_channel - 添加新频道映射")
+            message_parts.append("• /remove_channel <ID> - 删除频道映射")
+            message_parts.append("• /toggle_channel <ID> - 切换频道状态")
+            
+            result_message = "\n".join(message_parts)
+            await update.message.reply_text(result_message)
+            
+        except Exception as e:
+            logger.error(f"列出频道失败: {e}")
+            await update.message.reply_text(f"❌ 列出频道失败: {str(e)}")
+    
+    async def add_channel_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """添加新频道映射命令"""
+        try:
+            if len(context.args) < 4:
+                await update.message.reply_text(
+                    "❌ 参数不足\n\n"
+                    "📝 使用方法:\n"
+                    "/add_channel <ID> <名称> <源频道> <目标频道> [描述]\n\n"
+                    "🔍 示例:\n"
+                    "/add_channel tech_news 科技资讯 @tech_source @my_tech \u79d1技新闻转发\n"
+                    "/add_channel ent_news 娱乐资讯 @ent_source -1001234567890 娱乐内容转发"
+                )
+                return
+            
+            mapping_id = context.args[0]
+            name = context.args[1]
+            source_channel = context.args[2]
+            target_channel = context.args[3]
+            description = " ".join(context.args[4:]) if len(context.args) > 4 else ""
+            
+            # 验证频道ID格式
+            if not (source_channel.startswith('@') or source_channel.startswith('-')):
+                await update.message.reply_text("❌ 源频道ID格式错误，必须以@或-开头")
+                return
+            
+            if not (target_channel.startswith('@') or target_channel.startswith('-')):
+                await update.message.reply_text("❌ 目标频道ID格式错误，必须以@或-开头")
+                return
+            
+            # 创建新映射
+            new_mapping = {
+                'id': mapping_id,
+                'name': name,
+                'source_channel': source_channel,
+                'target_channel': target_channel,
+                'enabled': True,
+                'description': description,
+                'settings': {
+                    'fixed_caption': None,
+                    'append_caption': None,
+                    'delay_enabled': self.config.delay_enabled,
+                    'min_delay': self.config.min_delay,
+                    'max_delay': self.config.max_delay
+                }
+            }
+            
+            # 添加映射
+            if self.config.add_channel_mapping(new_mapping):
+                await update.message.reply_text(
+                    f"✅ 成功添加频道映射:\n"
+                    f"🏷️ ID: {mapping_id}\n"
+                    f"📝 名称: {name}\n"
+                    f"📡 源频道: {source_channel}\n"
+                    f"📤 目标频道: {target_channel}\n"
+                    f"📝 描述: {description if description else '无'}"
+                )
+                logger.info(f"管理员添加频道映射: {mapping_id} ({source_channel} -> {target_channel})")
+            else:
+                await update.message.reply_text("❌ 添加频道映射失败，请检查ID是否已存在")
+            
+        except Exception as e:
+            logger.error(f"添加频道失败: {e}")
+            await update.message.reply_text(f"❌ 添加频道失败: {str(e)}")
+    
+    async def remove_channel_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """删除频道映射命令"""
+        try:
+            if not context.args:
+                await update.message.reply_text(
+                    "❌ 请指定要删除的频道映射ID\n\n"
+                    "📝 使用方法:\n"
+                    "/remove_channel <ID>\n\n"
+                    "🔍 示例:\n"
+                    "/remove_channel tech_news"
+                )
+                return
+            
+            mapping_id = context.args[0]
+            
+            # 查找要删除的映射
+            mapping_to_remove = None
+            for mapping in self.config.channel_mappings:
+                if mapping['id'] == mapping_id:
+                    mapping_to_remove = mapping
+                    break
+            
+            if not mapping_to_remove:
+                await update.message.reply_text(f"❌ 找不到ID为 '{mapping_id}' 的频道映射")
+                return
+            
+            # 删除映射
+            if self.config.remove_channel_mapping(mapping_id):
+                await update.message.reply_text(
+                    f"✅ 成功删除频道映射:\n"
+                    f"🏷️ ID: {mapping_id}\n"
+                    f"📝 名称: {mapping_to_remove['name']}\n"
+                    f"📡 源频道: {mapping_to_remove['source_channel']}\n"
+                    f"📤 目标频道: {mapping_to_remove['target_channel']}"
+                )
+                logger.info(f"管理员删除频道映射: {mapping_id}")
+            else:
+                await update.message.reply_text("❌ 删除频道映射失败")
+            
+        except Exception as e:
+            logger.error(f"删除频道失败: {e}")
+            await update.message.reply_text(f"❌ 删除频道失败: {str(e)}")
+    
+    async def toggle_channel_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """切换频道启用/禁用状态命令"""
+        try:
+            if not context.args:
+                await update.message.reply_text(
+                    "❌ 请指定要切换状态的频道映射ID\n\n"
+                    "📝 使用方法:\n"
+                    "/toggle_channel <ID>\n\n"
+                    "🔍 示例:\n"
+                    "/toggle_channel tech_news"
+                )
+                return
+            
+            mapping_id = context.args[0]
+            
+            # 查找要切换的映射
+            mapping_to_toggle = None
+            for mapping in self.config.channel_mappings:
+                if mapping['id'] == mapping_id:
+                    mapping_to_toggle = mapping
+                    break
+            
+            if not mapping_to_toggle:
+                await update.message.reply_text(f"❌ 找不到ID为 '{mapping_id}' 的频道映射")
+                return
+            
+            # 切换状态
+            current_status = mapping_to_toggle.get('enabled', True)
+            mapping_to_toggle['enabled'] = not current_status
+            new_status = mapping_to_toggle['enabled']
+            
+            # 保存配置
+            if self.config.save_channel_mappings():
+                status_text = "🟢 启用" if new_status else "🔴 禁用"
+                await update.message.reply_text(
+                    f"✅ 成功切换频道状态:\n"
+                    f"🏷️ ID: {mapping_id}\n"
+                    f"📝 名称: {mapping_to_toggle['name']}\n"
+                    f"🔄 新状态: {status_text}"
+                )
+                logger.info(f"管理员切换频道状态: {mapping_id} -> {'enabled' if new_status else 'disabled'}")
+            else:
+                await update.message.reply_text("❌ 保存配置失败")
+            
+        except Exception as e:
+            logger.error(f"切换频道状态失败: {e}")
+            await update.message.reply_text(f"❌ 切换频道状态失败: {str(e)}")
 
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """处理消息"""
         try:
-            # 检查消息是否来自源频道
+            # 检查消息是否来自配置的源频道
             source_chat = update.effective_chat
             if source_chat is None:
                 return
             
-            # 支持频道用户名和ID两种格式
-            if self.config.source_channel_id.startswith('@'):
-                # 用户名格式：@channelname
-                if source_chat.username != self.config.source_channel_id.replace('@', ''):
-                    return
+            # 获取当前消息的源频道ID
+            current_source_channel = None
+            if source_chat.username:
+                current_source_channel = f"@{source_chat.username}"
             else:
-                # ID格式：-1001234567890
-                try:
-                    if source_chat.id != int(self.config.source_channel_id):
-                        return
-                except ValueError:
-                    # 如果转换失败，跳过此消息
-                    return
+                current_source_channel = str(source_chat.id)
+            
+            # 查找匹配的频道映射
+            channel_mapping = self.config.get_channel_mapping_by_source(current_source_channel)
+            if not channel_mapping:
+                # 如果没有匹配的频道映射，跳过此消息
+                return
+            
+            # 记录找到的频道映射
+            logger.info(f"📝 消息来自源频道: {current_source_channel} -> 目标频道: {channel_mapping['target_channel']} (映射: {channel_mapping['name']})")
             
             # 如果自定义轮询未激活，不处理源频道消息
             if not self.polling_active:
@@ -506,7 +701,7 @@ class CompleteTelegramMediaBot:
             # 检查是否是媒体组消息
             if message.media_group_id:
                 logger.info(f"消息 {message.message_id} 属于媒体组: {message.media_group_id}")
-                await self._handle_media_group_message(message, context)
+                await self._handle_media_group_message(message, context, channel_mapping)
             else:
                 # 处理单独的消息，在这里添加整个消息的延迟
                 logger.info(f"📝 处理单独消息 {message.message_id}")
@@ -517,7 +712,7 @@ class CompleteTelegramMediaBot:
                     logger.info(f"⏱️ 单独消息处理前等待 {delay:.1f}s（模拟人工操作）")
                     await asyncio.sleep(delay)
                 
-                await self._handle_single_message(message, context)
+                await self._handle_single_message(message, context, channel_mapping)
             
             # 更新统计
             self.polling_stats['messages_processed'] += 1
@@ -526,7 +721,7 @@ class CompleteTelegramMediaBot:
         except Exception as e:
             logger.error(f"处理消息失败: {e}")
 
-    async def _handle_single_message(self, message: Message, context: ContextTypes.DEFAULT_TYPE):
+    async def _handle_single_message(self, message: Message, context: ContextTypes.DEFAULT_TYPE, channel_mapping: dict = None):
         """处理单独的消息"""
         try:
             # 检查消息是否包含媒体
@@ -546,7 +741,7 @@ class CompleteTelegramMediaBot:
                     logger.info(f"📤 开始转发消息 {message.message_id} 到目标频道...")
                     
                     # 转发消息到目标频道
-                    await self.bot_handler.forward_message(message, downloaded_files, context.bot)
+                    await self.bot_handler.forward_message(message, downloaded_files, context.bot, channel_mapping)
                     logger.info(f"🎉 成功转发消息 {message.message_id} 到目标频道")
                     
                     # 自动清理已成功发布的文件
@@ -562,13 +757,13 @@ class CompleteTelegramMediaBot:
                 # 消息级延迟已在上层处理，这里直接转发
                 
                 # 转发纯文本消息
-                await self.bot_handler.forward_text_message(message, context.bot)
+                await self.bot_handler.forward_text_message(message, context.bot, channel_mapping)
                 logger.info(f"🎉 成功转发文本消息 {message.message_id} 到目标频道")
                 
         except Exception as e:
             logger.error(f"❌ 处理消息 {message.message_id} 失败: {e}")
 
-    async def _handle_media_group_message(self, message: Message, context: ContextTypes.DEFAULT_TYPE):
+    async def _handle_media_group_message(self, message: Message, context: ContextTypes.DEFAULT_TYPE, channel_mapping: dict = None):
         """处理媒体组消息"""
         media_group_id = message.media_group_id
         current_time = asyncio.get_event_loop().time()
@@ -582,6 +777,7 @@ class CompleteTelegramMediaBot:
                 'start_time': current_time,
                 'status': 'collecting',  # collecting, downloading, completed
                 'download_start_time': None,
+                'channel_mapping': channel_mapping,  # 保存频道映射信息
             }
             
             # 只在新建媒体组时设置定时器
@@ -809,6 +1005,10 @@ class CompleteTelegramMediaBot:
         self.application.add_handler(CommandHandler("selective_forward", self.selective_forward_command))
         self.application.add_handler(CommandHandler("set_fixed_caption", self.set_fixed_caption_command))
         self.application.add_handler(CommandHandler("set_append_caption", self.set_append_caption_command))
+        self.application.add_handler(CommandHandler("list_channels", self.list_channels_command))
+        self.application.add_handler(CommandHandler("add_channel", self.add_channel_command))
+        self.application.add_handler(CommandHandler("remove_channel", self.remove_channel_command))
+        self.application.add_handler(CommandHandler("toggle_channel", self.toggle_channel_command))
         
         # 消息处理器
         self.application.add_handler(MessageHandler(

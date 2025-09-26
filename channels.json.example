@@ -1,0 +1,56 @@
+{
+  "channels": [
+    {
+      "id": "tech_news",
+      "name": "科技资讯转发",
+      "source_channel": "@tech_source_channel",
+      "target_channel": "@my_tech_channel",
+      "enabled": true,
+      "description": "科技新闻从公共频道转发到我的频道",
+      "settings": {
+        "fixed_caption": null,
+        "append_caption": null,
+        "delay_enabled": true,
+        "min_delay": 1.0,
+        "max_delay": 5.0
+      }
+    },
+    {
+      "id": "entertainment",
+      "name": "娱乐内容转发", 
+      "source_channel": "@entertainment_source",
+      "target_channel": "-1001234567890",
+      "enabled": true,
+      "description": "娱乐内容转发到私密群组",
+      "settings": {
+        "fixed_caption": "🎬 娱乐资讯",
+        "append_caption": "\n\n📢 更多精彩内容关注我们",
+        "delay_enabled": true,
+        "min_delay": 2.0,
+        "max_delay": 8.0
+      }
+    },
+    {
+      "id": "news_backup",
+      "name": "新闻备份",
+      "source_channel": "-1009876543210",
+      "target_channel": "@my_news_backup",
+      "enabled": false,
+      "description": "新闻频道备份（当前禁用）",
+      "settings": {
+        "fixed_caption": null,
+        "append_caption": "\n\n📰 新闻备份",
+        "delay_enabled": false,
+        "min_delay": 1.0,
+        "max_delay": 3.0
+      }
+    }
+  ],
+  "global_settings": {
+    "max_concurrent_channels": 5,
+    "default_enabled": true,
+    "auto_create_folders": true,
+    "log_channel_activity": true,
+    "fallback_to_single_channel": true
+  }
+}
