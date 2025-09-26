@@ -386,10 +386,43 @@ class Config:
         return [mapping for mapping in self.channel_mappings if mapping.get('enabled', True)]
     
     def get_channel_mapping_by_source(self, source_channel: str) -> Optional[Dict[str, Any]]:
-        """根据源频道ID获取频道映射"""
+        """根据源频道ID获取频道映射（支持智能匹配）"""
         for mapping in self.get_enabled_channel_mappings():
-            if mapping['source_channel'] == source_channel:
+            config_channel = mapping['source_channel']
+            
+            # 直接匹配
+            if config_channel == source_channel:
                 return mapping
+            
+            # 智能格式匹配：用户名(@xxx) vs 数字ID(-100xxx)
+            if config_channel.startswith('@') and source_channel.startswith('-'):
+                # 配置是用户名，消息是数字ID - 跳过（需要反向匹配）
+                continue
+            elif source_channel.startswith('@') and config_channel.startswith('-'):
+                # 消息是用户名，配置是数字ID - 跳过（需要反向匹配）
+                continue
+            elif config_channel.startswith('@') and source_channel.startswith('@'):
+                # 都是用户名格式 - 已通过直接匹配处理
+                continue
+            elif config_channel.startswith('-') and source_channel.startswith('-'):
+                # 都是数字ID格式 - 可能是完整ID vs 短ID的差异
+                # 处理Telegram频道ID的不同格式匹配（完整格式 vs 短格式）
+                config_num = config_channel[1:]  # 去掉开头的 -
+                source_num = source_channel[1:]  # 去掉开头的 -
+                
+                # 情况1：配置是完整格式(-1003...)，消息是短格式(-100...)
+                if config_num.startswith('1003') and source_num.startswith('1003'):
+                    # 比较除去前缀的数字部分
+                    if len(config_num) == 13 and len(source_num) == 12:
+                        # 完整格式：1003152172020，短格式：100315217020
+                        # 取后面的数字部分比较：3152172020 vs 15217020
+                        if config_num[4:] == source_num[4:]:
+                            return mapping
+                    elif len(source_num) == 13 and len(config_num) == 12:
+                        # 反向：消息是完整格式，配置是短格式
+                        if source_num[4:] == config_num[4:]:
+                            return mapping
+        
         return None
     
     def get_all_source_channels(self) -> List[str]:

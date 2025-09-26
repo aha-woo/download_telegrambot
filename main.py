@@ -64,6 +64,9 @@ class CompleteTelegramMediaBot:
             'messages_processed': 0,
             'last_activity': None
         }
+        
+        # 全局发送锁，确保同时只有一个媒体组在发送，避免429错误
+        self.send_lock = asyncio.Lock()
 
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """处理 /start 命令"""
@@ -937,7 +940,7 @@ class CompleteTelegramMediaBot:
                 logger.info(f"📤 开始转发媒体组 {media_group_id} 到目标频道...")
                 
                 try:
-                    await self.bot_handler.forward_message(representative_message, all_downloaded_files, context.bot)
+                    await self.bot_handler.forward_message(representative_message, all_downloaded_files, context.bot, send_lock=self.send_lock)
                     
                     download_time = asyncio.get_event_loop().time() - group_data['download_start_time']
                     logger.info(f"🎉 成功转发媒体组 {media_group_id} 到目标频道！包含 {len(all_downloaded_files)} 个文件，总耗时 {download_time:.1f} 秒")

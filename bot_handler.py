@@ -5,6 +5,7 @@ Telegram Bot 消息处理模块
 import asyncio
 import logging
 import random
+import re
 from typing import List, Optional
 from pathlib import Path
 
@@ -164,7 +165,7 @@ class TelegramBotHandler:
             logger.error(f"转发文本消息失败: {e}")
             raise
     
-    async def forward_message(self, message: Message, downloaded_files: List[dict], bot=None, channel_mapping: dict = None):
+    async def forward_message(self, message: Message, downloaded_files: List[dict], bot=None, channel_mapping: dict = None, send_lock=None):
         """发送包含媒体的消息（作为原创内容）"""
         try:
             # 获取bot实例
@@ -180,10 +181,10 @@ class TelegramBotHandler:
             
             if len(downloaded_files) == 1:
                 # 单个媒体文件
-                await self._send_single_media(message, downloaded_files[0], forward_text, bot_instance)
+                await self._send_single_media(message, downloaded_files[0], forward_text, bot_instance, channel_mapping, send_lock)
             else:
                 # 多个媒体文件
-                await self._send_media_group(message, downloaded_files, forward_text, bot_instance)
+                await self._send_media_group(message, downloaded_files, forward_text, bot_instance, channel_mapping, send_lock)
             
             logger.info(f"成功转发媒体消息到目标频道")
             
@@ -191,7 +192,7 @@ class TelegramBotHandler:
             logger.error(f"转发媒体消息失败: {e}")
             raise
     
-    async def _send_single_media(self, message: Message, file_info: dict, caption: str, bot, channel_mapping: dict = None):
+    async def _send_single_media(self, message: Message, file_info: dict, caption: str, bot, channel_mapping: dict = None, send_lock=None):
         """发送单个媒体文件"""
         file_path = file_info['path']
         media_type = file_info['type']
@@ -268,7 +269,7 @@ class TelegramBotHandler:
                     **timeout_kwargs
                 )
     
-    async def _send_media_group(self, message: Message, file_infos: List[dict], caption: str, bot, channel_mapping: dict = None):
+    async def _send_media_group(self, message: Message, file_infos: List[dict], caption: str, bot, channel_mapping: dict = None, send_lock=None):
         """发送媒体组"""
         # 获取目标频道ID
         target_channel = channel_mapping['target_channel'] if channel_mapping else self.config.target_channel_id
@@ -304,16 +305,58 @@ class TelegramBotHandler:
         
         logger.info(f"📤 准备发送媒体组，包含 {len(media_list)} 个媒体文件")
         
-        # 发送媒体组（使用配置的超时时间，支持大文件如1GB视频）
-        await bot.send_media_group(
-            chat_id=target_channel,
-            media=media_list,
-            read_timeout=self.config.upload_read_timeout,
-            write_timeout=self.config.upload_write_timeout,
-            connect_timeout=self.config.upload_connect_timeout
-        )
+        # 使用全局发送锁，确保同时只有一个媒体组在发送
+        if send_lock:
+            async with send_lock:
+                logger.info(f"🔒 获得发送锁，开始发送媒体组")
+                await self._send_media_group_with_retry(bot, target_channel, media_list)
+        else:
+            await self._send_media_group_with_retry(bot, target_channel, media_list)
         
         logger.info(f"✅ 成功发送媒体组，包含 {len(media_list)} 个媒体文件")
+    
+    async def _send_media_group_with_retry(self, bot, target_channel: str, media_list: list, max_retries: int = 3):
+        """发送媒体组，带重试机制"""
+        
+        for attempt in range(max_retries + 1):
+            try:
+                # 发送媒体组（使用配置的超时时间，支持大文件如1GB视频）
+                await bot.send_media_group(
+                    chat_id=target_channel,
+                    media=media_list,
+                    read_timeout=self.config.upload_read_timeout,
+                    write_timeout=self.config.upload_write_timeout,
+                    connect_timeout=self.config.upload_connect_timeout
+                )
+                return  # 成功发送，退出重试循环
+                
+            except TelegramError as e:
+                error_code = getattr(e, 'error_code', None)
+                error_message = str(e)
+                
+                # 检查是否是429错误（频率限制）
+                if error_code == 429 or "flood control exceeded" in error_message.lower() or "too many requests" in error_message.lower():
+                    # 提取重试等待时间
+                    retry_after = getattr(e, 'retry_after', None)
+                    if not retry_after:
+                        # 尝试从错误消息中提取等待时间
+                        match = re.search(r'retry in (\d+) seconds?', error_message, re.IGNORECASE)
+                        if match:
+                            retry_after = int(match.group(1))
+                        else:
+                            retry_after = 5  # 默认等待5秒
+                    
+                    if attempt < max_retries:
+                        logger.warning(f"🔄 发送媒体组遇到频率限制 (429)，{retry_after}秒后重试 (尝试 {attempt + 1}/{max_retries + 1})")
+                        await asyncio.sleep(retry_after)
+                        continue
+                    else:
+                        logger.error(f"❌ 发送媒体组失败，已达最大重试次数: {error_message}")
+                        raise
+                else:
+                    # 其他错误，直接抛出
+                    logger.error(f"❌ 发送媒体组失败: {error_message}")
+                    raise
     
     def _build_forward_text(self, message: Message, channel_mapping: dict = None) -> str:
         """构建消息文本（支持频道特定设置）"""
