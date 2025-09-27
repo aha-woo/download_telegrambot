@@ -940,10 +940,13 @@ class CompleteTelegramMediaBot:
                 logger.info(f"📤 开始转发媒体组 {media_group_id} 到目标频道...")
                 
                 try:
-                    await self.bot_handler.forward_message(representative_message, all_downloaded_files, context.bot, send_lock=self.send_lock)
+                    # 使用保存的频道映射信息进行转发
+                    channel_mapping = group_data.get('channel_mapping')
+                    await self.bot_handler.forward_message(representative_message, all_downloaded_files, context.bot, channel_mapping=channel_mapping, send_lock=self.send_lock)
                     
+                    target_channel = channel_mapping['target_channel'] if channel_mapping else self.config.target_channel_id
                     download_time = asyncio.get_event_loop().time() - group_data['download_start_time']
-                    logger.info(f"🎉 成功转发媒体组 {media_group_id} 到目标频道！包含 {len(all_downloaded_files)} 个文件，总耗时 {download_time:.1f} 秒")
+                    logger.info(f"🎉 成功转发媒体组 {media_group_id} 到目标频道 {target_channel}！包含 {len(all_downloaded_files)} 个文件，总耗时 {download_time:.1f} 秒")
                     
                     # 更新状态为完成
                     group_data['status'] = 'completed'
